@@ -57,12 +57,6 @@ func _build_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.5
-
-	# colour grade: tame the saturated lime, add a little contrast
-	env.adjustment_enabled = true
-	env.adjustment_saturation = 0.88
-	env.adjustment_contrast = 1.06
-	env.adjustment_brightness = 0.99
 	we.environment = env
 	add_child(we)
 
@@ -78,6 +72,7 @@ func _build_environment() -> void:
 func _build_world() -> void:
 	# ground: one MultiMesh of hex_grass tiles (single draw call)
 	var grass := _mesh_of(HEX_GRASS)
+	_tint_mesh(grass, Color(0.58, 0.72, 0.46))   # deeper, less lime grass
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = grass
@@ -120,6 +115,18 @@ func _mesh_of(path: String) -> Mesh:
 	var m: Mesh = mi.mesh if mi else null
 	inst.free()
 	return m
+
+
+# Tint a mesh's albedo (multiplies the atlas texture) to recolour without grading.
+func _tint_mesh(m: Mesh, tint: Color) -> void:
+	if m == null:
+		return
+	for s in range(m.get_surface_count()):
+		var mat := m.surface_get_material(s)
+		if mat is StandardMaterial3D:
+			var d := (mat as StandardMaterial3D).duplicate() as StandardMaterial3D
+			d.albedo_color = tint
+			m.surface_set_material(s, d)
 
 
 func _find_mesh(n: Node) -> MeshInstance3D:
