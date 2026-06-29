@@ -6,8 +6,8 @@ extends Node3D
 
 const CHAR := "res://Models/characters/Knight.glb"
 const SPEED := 5.0
-# KayKit characters face -Z by default; flip if the model looks backwards.
-const FACE_OFFSET := PI
+# KayKit characters face +Z, matching atan2(dir.x, dir.z); no offset needed.
+const FACE_OFFSET := 0.0
 
 var model: Node3D
 var ap: AnimationPlayer
