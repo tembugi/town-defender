@@ -24,8 +24,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# joystick/screen direction -> world: camera views from +Z, so invert both axes
-	var dir := Vector3(-move_input.x, 0.0, -move_input.y)
+	# move_input is already a world-space XZ direction (Game3D maps it via the camera)
+	var dir := Vector3(move_input.x, 0.0, move_input.y)
 	if dir.length() > 0.15:
 		dir = dir.normalized()
 		position += dir * SPEED * delta

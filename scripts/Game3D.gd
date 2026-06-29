@@ -129,7 +129,16 @@ func _process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT): v.x += 1
 	if v == Vector2.ZERO and joystick.move_vec != Vector2.ZERO:
 		v = joystick.move_vec
-	hero.move_input = v.limit_length(1.0)
+	v = v.limit_length(1.0)
+	# map screen input to world using the camera's orientation (flattened to ground):
+	# screen-right = camera right, screen-up (v.y is negative up) = camera forward
+	var b := cam.global_transform.basis
+	var fwd := Vector3(b.z.x, 0, b.z.z)        # camera looks along -Z, so -fwd is "into screen"
+	var right := Vector3(b.x.x, 0, b.x.z)
+	if fwd.length() > 0.001: fwd = fwd.normalized()
+	if right.length() > 0.001: right = right.normalized()
+	var world := right * v.x + (-fwd) * (-v.y)   # -fwd = into screen/up; -v.y because up is negative
+	hero.move_input = Vector2(world.x, world.z)
 
 	# smooth follow camera
 	var t := clampf(delta * 8.0, 0.0, 1.0)
