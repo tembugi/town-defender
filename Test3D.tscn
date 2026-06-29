@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b3dtest0kaykit"]
+
+[ext_resource type="Script" path="res://scripts/Test3D.gd" id="1_test3d"]
+
+[node name="Test3D" type="Node3D"]
+script = ExtResource("1_test3d")
