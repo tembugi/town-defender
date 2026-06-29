@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b3dmain0kaykit"]
+
+[ext_resource type="Script" path="res://scripts/Game3D.gd" id="1_game3d"]
+
+[node name="Game3D" type="Node3D"]
+script = ExtResource("1_game3d")
