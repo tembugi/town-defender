@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b8td2main01"]
+
+[ext_resource type="Script" uid="uid://dofusm1wnvkki" path="res://scripts/Game.gd" id="1_game"]
+
+[node name="Game" type="Node2D" unique_id=2047393100]
+script = ExtResource("1_game")

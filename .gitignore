@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Web export output (built in CI)
+build/
+/web_build/
