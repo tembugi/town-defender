@@ -36,11 +36,11 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	btn_wave = _make_button("START\nWAVE", Color(0.85, 0.45, 0.4))
+	btn_wave = _make_button("START\nWAVE", -1, Color(0.85, 0.45, 0.4))
 	btn_wave.pressed.connect(func(): game.start_wave())
-	btn_wall = _make_button("BUILD\nWALL", Color(0.45, 0.55, 0.7))
+	btn_wall = _make_button("BUILD\nWALL", game.WALL_COST, Color(0.45, 0.55, 0.7))
 	btn_wall.pressed.connect(func(): game._place_wall())
-	btn_hire = _make_button("HIRE\nWORKER", Color(0.45, 0.7, 0.45))
+	btn_hire = _make_button("HIRE\nWORKER", game.HIRE_COST, Color(0.45, 0.7, 0.45))
 	btn_hire.pressed.connect(func(): game.hire_worker())
 
 	get_viewport().size_changed.connect(_layout)
@@ -48,11 +48,11 @@ func _ready() -> void:
 	_layout.call_deferred()   # ensure correct after first layout pass
 
 
-func _make_button(text: String, col: Color) -> Button:
+func _make_button(text: String, cost: int, col: Color) -> Button:
 	var b := Button.new()
-	b.text = text
+	b.text = text if cost < 0 else "%s\n%dg" % [text, cost]
 	b.size = Vector2(BTN_W, BTN_H)
-	b.add_theme_font_size_override("font_size", 26)
+	b.add_theme_font_size_override("font_size", 24)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(col.r, col.g, col.b, 0.88)
 	sb.set_corner_radius_all(18)
