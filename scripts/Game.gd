@@ -70,6 +70,13 @@ var coin_spawn_timer := 0.0
 
 var pads: Array[BuildPad] = []
 
+# workers / economy
+var workers: Array[Worker] = []
+var worker_cap := 2          # +3 per House built
+var workshops := 0           # each gives passive income
+var workshop_income_t := 0.0
+const HIRE_COST := 25
+
 # combat / defense
 var keep: Wall
 var walls: Array[Wall] = []
@@ -93,6 +100,7 @@ var lbl_gold: Label
 var lbl_hint: Label
 var lbl_wave: Label
 var lbl_keep: Label
+var lbl_pop: Label
 var btn_start: Button
 var overlay: ColorRect
 var lbl_end: Label
@@ -290,6 +298,16 @@ func spawn_building(type: String, pos: Vector2) -> void:
 	if data.get("smoke", false):
 		_add_smoke(pos + Vector2(6, -rect.size.y + 6))
 
+	# functional effects
+	match type:
+		"house":
+			worker_cap += 3
+			_update_pop()
+			flash_hint("House built - worker capacity +3")
+		"workshop":
+			workshops += 1
+			flash_hint("Workshop built - passive income up")
+
 
 func _add_smoke(pos: Vector2) -> void:
 	var tex := load(SMOKE) as Texture2D
@@ -323,28 +341,35 @@ func _build_ui() -> void:
 
 	lbl_gold = Label.new()
 	lbl_gold.text = "Gold: %d" % gold
-	lbl_gold.position = Vector2(24, 56)
-	lbl_gold.add_theme_font_size_override("font_size", 24)
+	lbl_gold.position = Vector2(22, 56)
+	lbl_gold.add_theme_font_size_override("font_size", 22)
 	lbl_gold.add_theme_color_override("font_color", Color(1, 0.85, 0.25))
 	ui.add_child(lbl_gold)
 
 	lbl_keep = Label.new()
 	lbl_keep.text = "Keep: 1500"
-	lbl_keep.position = Vector2(250, 56)
-	lbl_keep.add_theme_font_size_override("font_size", 24)
+	lbl_keep.position = Vector2(185, 56)
+	lbl_keep.add_theme_font_size_override("font_size", 22)
 	lbl_keep.add_theme_color_override("font_color", Color(0.7, 0.85, 1))
 	ui.add_child(lbl_keep)
 
+	lbl_pop = Label.new()
+	lbl_pop.text = "Pop: 0/%d" % worker_cap
+	lbl_pop.position = Vector2(370, 56)
+	lbl_pop.add_theme_font_size_override("font_size", 22)
+	lbl_pop.add_theme_color_override("font_color", Color(0.75, 1, 0.75))
+	ui.add_child(lbl_pop)
+
 	lbl_wave = Label.new()
 	lbl_wave.text = "Wave: 0/%d" % total_waves
-	lbl_wave.position = Vector2(520, 56)
-	lbl_wave.add_theme_font_size_override("font_size", 24)
+	lbl_wave.position = Vector2(540, 56)
+	lbl_wave.add_theme_font_size_override("font_size", 22)
 	lbl_wave.add_theme_color_override("font_color", Color(0.95, 0.7, 0.7))
 	ui.add_child(lbl_wave)
 
 	# hint sits just under the top bar (the top edge is stable across aspects)
 	lbl_hint = Label.new()
-	lbl_hint.text = "Drag to move - stand by trees/rocks/pads/enemies to act"
+	lbl_hint.text = "Drag to move. Hire workers to auto-gather; build Houses for more."
 	lbl_hint.position = Vector2(16, 102)
 	lbl_hint.add_theme_font_size_override("font_size", 16)
 	lbl_hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
@@ -458,7 +483,8 @@ func _process(delta: float) -> void:
 		if node != null:
 			face_hero(node.position.x)
 			set_hero_anim("axe" if node.ntype == "tree" else "mining")
-			node.work(delta)
+			if node.work(delta):
+				drop_coins(node.global_position, node.yield_coins)
 		elif moving:
 			set_hero_anim("run")
 		else:
@@ -482,6 +508,17 @@ func _process(delta: float) -> void:
 	if coin_spawn_timer <= 0.0 and coins.size() < 8:
 		_spawn_coin()
 		coin_spawn_timer = 2.5
+
+	# passive income from workshops
+	if workshops > 0:
+		workshop_income_t -= delta
+		if workshop_income_t <= 0.0:
+			workshop_income_t = 3.0
+			var inc := workshops * 3
+			gold += inc
+			lbl_gold.text = "Gold: %d" % gold
+			if is_instance_valid(keep) and not keep.dead:
+				_coin_popup(keep.global_position + Vector2(0, -44), inc)
 
 	_update_waves(delta)
 	lbl_keep.text = "Keep: %d" % (0 if keep == null or keep.dead else int(keep.hp))
@@ -532,6 +569,50 @@ func drop_coins(pos: Vector2, n: int) -> void:
 		c.scale = Vector2(0.2, 0.2)
 		var tw := create_tween()
 		tw.tween_property(c, "scale", Vector2(1, 1), 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+# ---------------------------------------------------------------------------
+# Workers (auto-gatherers)
+# ---------------------------------------------------------------------------
+func nearest_node_for_worker(from: Vector2) -> HarvestNode:
+	var best: HarvestNode = null
+	var bestd := INF
+	for n in harvest_nodes:
+		if n.depleted:
+			continue
+		var d := from.distance_to(n.position)
+		if d < bestd:
+			bestd = d
+			best = n
+	return best
+
+
+func hire_worker() -> void:
+	if game_over:
+		return
+	if workers.size() >= worker_cap:
+		flash_hint("Build a House for more workers")
+		return
+	if gold < HIRE_COST:
+		flash_hint("Need %d gold to hire a worker" % HIRE_COST)
+		return
+	spend_gold(HIRE_COST)
+	var w := Worker.new()
+	w.position = keep.global_position + Vector2(randf_range(-24, 24), 24)
+	world.add_child(w)
+	w.setup(self)
+	workers.append(w)
+	_update_pop()
+
+
+func worker_deposit(amount: int, pos: Vector2) -> void:
+	gold += amount
+	lbl_gold.text = "Gold: %d" % gold
+	_coin_popup(pos + Vector2(0, -28), amount)
+
+
+func _update_pop() -> void:
+	lbl_pop.text = "Pop: %d/%d" % [workers.size(), worker_cap]
 
 
 # ---------------------------------------------------------------------------
@@ -733,3 +814,5 @@ func _input(event: InputEvent) -> void:
 			_place_wall()
 		elif event.keycode == KEY_SPACE:
 			start_wave()
+		elif event.keycode == KEY_H:
+			hire_worker()

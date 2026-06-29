@@ -56,14 +56,18 @@ func setup(g: Node, type: String) -> void:
 	add_child(spr)
 
 
-func work(delta: float) -> void:
+func work(delta: float) -> bool:
+	# advances harvest; returns true on the frame the node is depleted, so the
+	# caller (hero -> drop coins, worker -> carry to keep) can grant the yield.
 	if depleted:
-		return
+		return false
 	progress += delta / work_time
 	spr.position.x = sin(Time.get_ticks_msec() / 35.0) * 0.7   # shake while struck
 	if progress >= 1.0:
 		_deplete()
+		return true
 	queue_redraw()
+	return false
 
 
 func decay(delta: float) -> void:
@@ -78,7 +82,6 @@ func _deplete() -> void:
 	depleted = true
 	progress = 0.0
 	spr.position.x = 0.0
-	game.drop_coins(global_position, yield_coins)
 	var tw := create_tween()
 	tw.tween_property(spr, "scale", Vector2(0.1, 0.1), 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 	tw.tween_callback(func(): spr.visible = false)

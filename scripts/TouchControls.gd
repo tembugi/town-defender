@@ -19,6 +19,7 @@ var _knob := Vector2.ZERO
 
 var btn_wall: Button
 var btn_wave: Button
+var btn_hire: Button
 
 
 func setup(g: Node) -> void:
@@ -30,11 +31,15 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   # let buttons get touches; joystick uses _unhandled_input
 
 	# anchored to the bottom-right so they hug the real screen edge on any aspect
+	var step := 130.0 + 16.0
 	btn_wave = _make_button("START\nWAVE", 44.0, Color(0.85, 0.45, 0.4))
 	btn_wave.pressed.connect(func(): game.start_wave())
 
-	btn_wall = _make_button("BUILD\nWALL", 44.0 + 130.0 + 16.0, Color(0.45, 0.55, 0.7))
+	btn_wall = _make_button("BUILD\nWALL", 44.0 + step, Color(0.45, 0.55, 0.7))
 	btn_wall.pressed.connect(func(): game._place_wall())
+
+	btn_hire = _make_button("HIRE\nWORKER", 44.0 + step * 2.0, Color(0.45, 0.7, 0.45))
+	btn_hire.pressed.connect(func(): game.hire_worker())
 
 
 func _make_button(text: String, bottom_margin: float, col: Color) -> Button:
