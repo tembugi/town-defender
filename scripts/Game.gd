@@ -65,7 +65,7 @@ var harvest_nodes: Array[HarvestNode] = []
 
 var coins: Array[Coin] = []
 var coin_value := 2
-var gold := 30   # enough to build the first House right away
+var gold := 500  # generous start for testing
 var coin_spawn_timer := 0.0
 
 var pads: Array[BuildPad] = []
