@@ -3,8 +3,8 @@ extends Node3D
 # 3D rebuild - Chunk 1: a hero on a ground plane, a fixed tilted follow-camera,
 # and joystick/WASD movement. Foundation for the 3D town-defender.
 
-const CAM_OFFSET := Vector3(0, 7, 7)
-const CAM_LOOK := Vector3(0, 0.7, 0)
+const CAM_OFFSET := Vector3(0, 9.2, 5.6)   # steeper, more top-down "manage from above"
+const CAM_LOOK := Vector3(0, 0.6, 0)
 
 # pointy-top hex grid spacing (from measured tile: flat-width 2.0, 3/4 of point-height)
 const HEX_W := 2.0
@@ -44,17 +44,34 @@ func _ready() -> void:
 func _build_environment() -> void:
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.53, 0.74, 0.92)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.72, 0.72, 0.78)
-	env.ambient_light_energy = 0.9
+
+	# gradient sky -> nicer backdrop + cohesive ambient
+	var sky := Sky.new()
+	var psm := ProceduralSkyMaterial.new()
+	psm.sky_top_color = Color(0.36, 0.58, 0.88)
+	psm.sky_horizon_color = Color(0.72, 0.81, 0.9)
+	psm.ground_horizon_color = Color(0.72, 0.78, 0.82)
+	psm.ground_bottom_color = Color(0.5, 0.52, 0.5)
+	sky.sky_material = psm
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 0.5
+
+	# colour grade: tame the saturated lime, add a little contrast
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 0.88
+	env.adjustment_contrast = 1.06
+	env.adjustment_brightness = 0.99
 	we.environment = env
 	add_child(we)
 
+	# warm sun with shadows
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -45, 0)
-	sun.light_energy = 1.1
+	sun.rotation_degrees = Vector3(-58, -50, 0)
+	sun.light_color = Color(1.0, 0.95, 0.84)
+	sun.light_energy = 1.4
+	sun.shadow_enabled = true
 	add_child(sun)
 
 
