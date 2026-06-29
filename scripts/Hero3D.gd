@@ -13,6 +13,7 @@ var model: Node3D
 var ap: AnimationPlayer
 var anim := ""
 var move_input := Vector2.ZERO   # x = world X, y = world Z (set by Game3D)
+var bounds := Rect2()            # XZ play area; clamp position when set
 
 
 func _ready() -> void:
@@ -27,6 +28,9 @@ func _process(delta: float) -> void:
 	if dir.length() > 0.15:
 		dir = dir.normalized()
 		position += dir * SPEED * delta
+		if bounds.size != Vector2.ZERO:
+			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
+			position.z = clampf(position.z, bounds.position.y, bounds.end.y)
 		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
 		_play("Walking_C")
 	else:
