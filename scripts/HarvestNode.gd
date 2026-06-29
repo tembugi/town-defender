@@ -49,9 +49,10 @@ func setup(g: Node, type: String) -> void:
 		var s := Sprite2D.new()
 		var at := AtlasTexture.new()
 		at.atlas = load(ATLAS)
-		at.region = Rect2(856, 344, 32, 31)
+		at.region = Rect2(855, 349, 18, 16)
 		s.texture = at
-		s.offset = Vector2(0, -at.region.size.y / 2.0 + 2)
+		s.scale = Vector2(1.6, 1.6)   # upscale so it reads at game zoom
+		s.offset = Vector2(0, -at.region.size.y / 2.0)
 		spr = s
 	add_child(spr)
 

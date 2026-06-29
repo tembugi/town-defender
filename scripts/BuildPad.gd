@@ -42,22 +42,29 @@ func _ready() -> void:
 	icon.position = Vector2(0, -30)
 	add_child(icon)
 
+	# Labels scale down by 1/zoom so they render at screen resolution, not
+	# upscaled from tiny world-space pixels. Font sizes are chosen for 3x zoom.
+	var zoom := 3.0
+	var inv := 1.0 / zoom
+
 	cost_label = Label.new()
 	cost_label.text = "%dg" % cost
-	cost_label.add_theme_font_size_override("font_size", 8)
+	cost_label.add_theme_font_size_override("font_size", 22)
 	cost_label.add_theme_color_override("font_color", Color(1, 0.9, 0.4))
 	cost_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	cost_label.add_theme_constant_override("outline_size", 3)
-	cost_label.position = Vector2(5, -28)
+	cost_label.add_theme_constant_override("outline_size", 6)
+	cost_label.scale = Vector2(inv, inv)
+	cost_label.position = Vector2(2, -32)
 	add_child(cost_label)
 
 	name_label = Label.new()
 	name_label.text = label
-	name_label.add_theme_font_size_override("font_size", 7)
+	name_label.add_theme_font_size_override("font_size", 22)
 	name_label.add_theme_color_override("font_color", Color(1, 1, 1))
 	name_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	name_label.add_theme_constant_override("outline_size", 3)
-	name_label.position = Vector2(-13, -46)
+	name_label.add_theme_constant_override("outline_size", 6)
+	name_label.scale = Vector2(inv, inv)
+	name_label.position = Vector2(-20, -48)
 	add_child(name_label)
 
 	arrow = Sprite2D.new()
