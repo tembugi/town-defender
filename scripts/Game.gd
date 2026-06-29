@@ -77,6 +77,10 @@ var workshops := 0           # each gives passive income
 var workshop_income_t := 0.0
 const HIRE_COST := 25
 
+# soldiers (spawned by Barracks)
+var soldiers: Array[Soldier] = []
+const SOLDIERS_PER_BARRACKS := 2
+
 # combat / defense
 var keep: Wall
 var walls: Array[Wall] = []
@@ -307,6 +311,10 @@ func spawn_building(type: String, pos: Vector2) -> void:
 		"workshop":
 			workshops += 1
 			flash_hint("Workshop built - passive income up")
+		"barracks":
+			for i in range(SOLDIERS_PER_BARRACKS):
+				_spawn_soldier()
+			flash_hint("Barracks built - %d soldiers join the watch" % SOLDIERS_PER_BARRACKS)
 
 
 func _add_smoke(pos: Vector2) -> void:
@@ -613,6 +621,30 @@ func worker_deposit(amount: int, pos: Vector2) -> void:
 
 func _update_pop() -> void:
 	lbl_pop.text = "Pop: %d/%d" % [workers.size(), worker_cap]
+
+
+func _spawn_soldier() -> void:
+	var ang := randf() * TAU
+	var gpos: Vector2 = keep.global_position + Vector2(cos(ang), sin(ang)) * 56.0
+	var s := Soldier.new()
+	s.position = gpos
+	world.add_child(s)
+	s.setup(self, gpos)
+	soldiers.append(s)
+
+
+func nearest_enemy_from(from: Vector2, rng: float) -> Enemy:
+	var best: Enemy = null
+	var bestd := rng
+	for n in get_tree().get_nodes_in_group("enemies"):
+		var e := n as Enemy
+		if e == null or e.dead:
+			continue
+		var d: float = from.distance_to(e.global_position)
+		if d < bestd:
+			bestd = d
+			best = e
+	return best
 
 
 # ---------------------------------------------------------------------------

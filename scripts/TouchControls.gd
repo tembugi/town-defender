@@ -74,6 +74,20 @@ func _layout() -> void:
 	btn_hire.position = Vector2(x, vp.y - BOTTOM - BTN_H * 3.0 - GAP * 2.0)
 
 
+func _process(_delta: float) -> void:
+	if game == null:
+		return
+	var ok: bool = not game.game_over
+	_set_afford(btn_hire, ok and game.gold >= game.HIRE_COST and game.workers.size() < game.worker_cap)
+	_set_afford(btn_wall, ok and game.gold >= game.WALL_COST)
+	_set_afford(btn_wave, ok and not game.wave_active and game.wave < game.total_waves)
+
+
+func _set_afford(b: Button, enabled: bool) -> void:
+	b.disabled = not enabled
+	b.modulate = Color(1, 1, 1, 1) if enabled else Color(0.55, 0.55, 0.55, 0.7)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
