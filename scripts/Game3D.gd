@@ -3,8 +3,8 @@ extends Node3D
 # 3D rebuild - Chunk 1: a hero on a ground plane, a fixed tilted follow-camera,
 # and joystick/WASD movement. Foundation for the 3D town-defender.
 
-const CAM_OFFSET := Vector3(0, 12, 12)
-const CAM_LOOK := Vector3(0, 1.0, 0)
+const CAM_OFFSET := Vector3(0, 7, 7)
+const CAM_LOOK := Vector3(0, 0.7, 0)
 
 # pointy-top hex grid spacing (from measured tile: flat-width 2.0, 3/4 of point-height)
 const HEX_W := 2.0
@@ -89,9 +89,11 @@ func _build_world() -> void:
 		var p := Vector3(randf_range(field_rect.position.x, field_rect.end.x), 0, randf_range(field_rect.position.y, field_rect.end.y))
 		if Vector2(p.x, p.z).length() < 3.0:
 			continue
-		var deco := (load(TREE if randf() < 0.65 else ROCK) as PackedScene).instantiate()
+		var is_tree := randf() < 0.65
+		var deco := (load(TREE if is_tree else ROCK) as PackedScene).instantiate()
 		deco.position = p
 		deco.rotation.y = randf() * TAU
+		deco.scale = Vector3.ONE * (1.5 if is_tree else 1.5)
 		add_child(deco)
 
 

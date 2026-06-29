@@ -6,6 +6,8 @@ extends Node3D
 
 const CHAR := "res://Models/characters/Knight.glb"
 const SPEED := 5.0
+# Adventurers are ~2x the Hexagon pack scale; shrink so units fit on hex tiles.
+const CHAR_SCALE := 0.55
 # KayKit characters face +Z, matching atan2(dir.x, dir.z); no offset needed.
 const FACE_OFFSET := 0.0
 
@@ -18,6 +20,7 @@ var bounds := Rect2()            # XZ play area; clamp position when set
 
 func _ready() -> void:
 	model = (load(CHAR) as PackedScene).instantiate()
+	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	ap = Rig.attach(model)
 	_play("Idle_A")
