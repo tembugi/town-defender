@@ -63,9 +63,10 @@ func _attach_animations(character: Node) -> void:
 	for lib_name in src_ap.get_animation_library_list():
 		ap.add_animation_library("gen", src_ap.get_animation_library(lib_name))
 		break
-	ap.root_node = ap.get_path_to(character)
 	src.queue_free()
 	if ap.has_animation("gen/Idle_A"):
+		# imported glTF clips default to loop OFF -> would play once and freeze
+		ap.get_animation("gen/Idle_A").loop_mode = Animation.LOOP_LINEAR
 		ap.play("gen/Idle_A")
 	else:
 		print("available: ", ap.get_animation_list())
