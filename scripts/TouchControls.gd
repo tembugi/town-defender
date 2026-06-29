@@ -29,19 +29,28 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   # let buttons get touches; joystick uses _unhandled_input
 
-	# explicit viewport positions (720x1280), bottom-right cluster
-	btn_wave = _make_button("START\nWAVE", Vector2(548, 1118), Color(0.85, 0.45, 0.4))
+	# anchored to the bottom-right so they hug the real screen edge on any aspect
+	btn_wave = _make_button("START\nWAVE", 44.0, Color(0.85, 0.45, 0.4))
 	btn_wave.pressed.connect(func(): game.start_wave())
 
-	btn_wall = _make_button("BUILD\nWALL", Vector2(548, 968), Color(0.45, 0.55, 0.7))
+	btn_wall = _make_button("BUILD\nWALL", 44.0 + 130.0 + 16.0, Color(0.45, 0.55, 0.7))
 	btn_wall.pressed.connect(func(): game._place_wall())
 
 
-func _make_button(text: String, pos: Vector2, col: Color) -> Button:
+func _make_button(text: String, bottom_margin: float, col: Color) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.position = pos
-	b.size = Vector2(156, 130)
+	var w := 156.0
+	var h := 130.0
+	var right_margin := 24.0
+	b.anchor_left = 1.0
+	b.anchor_top = 1.0
+	b.anchor_right = 1.0
+	b.anchor_bottom = 1.0
+	b.offset_right = -right_margin
+	b.offset_left = -right_margin - w
+	b.offset_bottom = -bottom_margin
+	b.offset_top = -bottom_margin - h
 	b.add_theme_font_size_override("font_size", 26)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(col.r, col.g, col.b, 0.85)

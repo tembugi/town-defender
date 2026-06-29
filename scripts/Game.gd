@@ -342,29 +342,44 @@ func _build_ui() -> void:
 	lbl_wave.add_theme_color_override("font_color", Color(0.95, 0.7, 0.7))
 	ui.add_child(lbl_wave)
 
+	# hint sits just under the top bar (the top edge is stable across aspects)
 	lbl_hint = Label.new()
 	lbl_hint.text = "Drag to move - stand by trees/rocks/pads/enemies to act"
-	lbl_hint.position = Vector2(16, 1238)
+	lbl_hint.position = Vector2(16, 102)
 	lbl_hint.add_theme_font_size_override("font_size", 16)
 	lbl_hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.8))
+	lbl_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	lbl_hint.add_theme_constant_override("outline_size", 4)
 	ui.add_child(lbl_hint)
 
+	# end overlay: fill the whole viewport and centre its contents on any size
 	overlay = ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.72)
-	overlay.size = Vector2(720, 1280)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.visible = false
 	ui.add_child(overlay)
 	lbl_end = Label.new()
-	lbl_end.position = Vector2(0, 520)
-	lbl_end.size = Vector2(720, 80)
+	lbl_end.anchor_left = 0.0
+	lbl_end.anchor_right = 1.0
+	lbl_end.anchor_top = 0.5
+	lbl_end.anchor_bottom = 0.5
+	lbl_end.offset_top = -120.0
+	lbl_end.offset_bottom = -20.0
 	lbl_end.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_end.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl_end.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl_end.add_theme_font_size_override("font_size", 44)
 	overlay.add_child(lbl_end)
 	var btn_restart := Button.new()
 	btn_restart.text = "Play Again"
-	btn_restart.position = Vector2(260, 660)
-	btn_restart.size = Vector2(200, 64)
+	btn_restart.anchor_left = 0.5
+	btn_restart.anchor_right = 0.5
+	btn_restart.anchor_top = 0.5
+	btn_restart.anchor_bottom = 0.5
+	btn_restart.offset_left = -110.0
+	btn_restart.offset_right = 110.0
+	btn_restart.offset_top = 30.0
+	btn_restart.offset_bottom = 94.0
 	btn_restart.add_theme_font_size_override("font_size", 24)
 	btn_restart.pressed.connect(func(): get_tree().reload_current_scene())
 	overlay.add_child(btn_restart)
