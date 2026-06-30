@@ -1,43 +1,67 @@
 # Town Defender
 
-A small tower-defense game built in **Godot 4.7** on top of the *Tiny Swords* art pack
-that ships in `Assets/`. Enemies march along the road toward your castle — build towers
-on the marked slots to stop them before they break through.
+A small low-poly **3D** town-defender built in **Godot 4.7**, modelled on the
+Whiteout-Survival ad-minigame loop: **gather resources → build → defend against
+waves**. Art is from the free [KayKit](https://kaylousberg.itch.io/) packs
+(Adventurers, Character Animations, Medieval Hexagon, Skeletons) under `Models/`.
+
+Built to run on mobile browsers — uses the `gl_compatibility` renderer (WebGL2),
+a single-threaded web export, and 75% 3D render scaling on web. Deployed to
+GitHub Pages via CI on every push to `main`.
 
 ## How to play
 
-1. Open the project in Godot 4.7 (or run it from the command line):
-   ```
-   /Applications/Godot.app/Contents/MacOS/Godot --path .
-   ```
-2. **Build towers**: click a tower button in the bottom bar, then click a glowing slot
-   on the map. Towers auto-attack any enemy in range.
-   - **Archer Tower** (50g) — fast, cheap, single-target arrows.
-   - **Bomb Tower** (110g) — slow, expensive, lobs explosives that deal splash damage.
-3. **Start a wave**: press the *Start Wave* button (or `Space`). Between waves you can
-   keep building.
-4. **Economy**: every enemy killed drops gold; clearing a wave pays a bonus. Spend it on
-   more towers.
-5. **Survive**: each enemy that reaches the castle costs you castle health. Lose all 20
-   and it's game over. Clear all **10 waves** to win.
+You control the **Knight** with the on-screen joystick (or `WASD`/arrows on
+desktop). The camera follows you over a hex field with your **Keep** at the
+centre.
 
-### Enemies
-- **Pawn** — fast, weak, cheap to kill.
-- **Archer** — medium health and speed.
-- **Warrior** — slow but very tanky, and costs 2 castle health if it leaks through.
+1. **Gather**: walk up to a tree or rock to fell it — felling drops a resource
+   pile on the ground. Walk over a pile as the hero and it's banked instantly.
+2. **Hire workers** (`HIRE WORKER`, 25g / `H`): Rogues that fell nodes on their
+   own, fetch loose piles (including ones you chopped), and haul them back to the
+   Keep to bank gold.
+3. **Build**: stand on a glowing build pad with enough gold to construct it.
+   - **House** (20g) — raises the worker cap.
+   - **Market** (45g) — passive gold income over time.
+   - **Barracks** (80g) — adds a reusable *Train* pad; train Barbarian soldiers
+     (30g each) that guard the Keep and charge nearby raiders.
+4. **Defend**: press `START WAVE` (or `Space`) to send in a wave of skeletons.
+   Waves are **stackable** — the button has a short cooldown (shown by a sweeping
+   overlay) and displays the live count of enemies left. Skeletons use
+   separation steering to fan out and besiege the Keep from all sides.
+5. **Attack**: a telegraphed cone is drawn in front of the hero. A swing starts
+   only when an enemy is at least partly inside it, and the hit is re-checked
+   after a short wind-up — so an enemy that dodges out in time is missed.
 
-Waves get bigger and add more warriors as you progress.
+Survive all **8 waves** to win. If the Keep's health hits zero, it's game over.
+
+## Running locally
+
+```
+/Applications/Godot.app/Contents/MacOS/Godot --path .
+```
 
 ## Project layout
 
 | File | Purpose |
 |------|---------|
-| `Main.tscn` | Entry scene (set as the project's main scene). |
-| `scripts/Game.gd` | Game manager: map, waves, gold/lives, UI, build logic. |
-| `scripts/Enemy.gd` | Path-following enemy with health bar. |
-| `scripts/Tower.gd` | Tower targeting and firing. |
-| `scripts/Projectile.gd` | Arrows (homing) and bomb shells (lobbed + splash). |
-| `scripts/Anim.gd` | Builds `SpriteFrames` from the 192×192 sprite sheets at runtime. |
-| `Assets/` | The Tiny Swords sprite/tileset/FX pack. |
+| `Main3D.tscn` | Entry scene (project main scene). |
+| `scripts/Game3D.gd` | Game controller: world/hex field, camera, HUD, economy, build & wave systems, hero combat. |
+| `scripts/Hero3D.gd` | Player-controlled Knight: movement, facing, attack cone. |
+| `scripts/Worker3D.gd` | Rogue villager: fell → fetch drop → haul → deposit loop. |
+| `scripts/Soldier3D.gd` | Barbarian Keep defender. |
+| `scripts/Enemy3D.gd` | Skeleton raider: separation steering, attacks the Keep. |
+| `scripts/ResourceNode3D.gd` | Harvestable tree/rock (depletes + regrows). |
+| `scripts/ResourceDrop3D.gd` | Loose resource pile dropped on felling. |
+| `scripts/BuildPad3D.gd` | Build-slot marker with cost label and affordability dimming. |
+| `scripts/TouchJoystick.gd` | Floating virtual joystick. |
+| `scripts/Rig.gd` | Shared helpers: KayKit animation retargeting, HP bars, blob shadows, colliders. |
+| `Models/` | KayKit art (characters, animation rigs, hexagon buildings/tiles, skeletons). |
 
-All game objects are created in code, so the only scene file is the tiny `Main.tscn`.
+## Notes on the art
+
+KayKit characters are a mesh plus a `Rig_Medium` skeleton with **no** embedded
+clips; animations live in separate `Rig_Medium_*.glb` files and are merged into a
+shared `AnimationLibrary` at runtime (`Rig.gd`). The Adventurers and Skeletons
+rigs share the name `Rig_Medium` but are **not** cross-compatible, so each has its
+own animation set.
