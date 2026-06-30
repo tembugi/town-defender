@@ -228,11 +228,11 @@ func _process(delta: float) -> void:
 
 	# hero gathers the nearest node when standing still beside it
 	if v.length() < 0.05:
-		# standing on a build pad takes priority over gathering
+		# build only when on a pad you can afford (else fall through to gathering)
 		var pad := nearest_pad(hero.position, BUILD_RANGE)
-		if pad != null:
+		if pad != null and gold >= pad.cost:
 			hero.gather_target = pad
-			if gold >= pad.cost and pad.advance(delta):
+			if pad.advance(delta):
 				_construct(pad)
 		else:
 			var node := nearest_resource(hero.position, GATHER_RANGE)
