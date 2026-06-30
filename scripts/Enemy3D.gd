@@ -28,6 +28,9 @@ var atk_cd := 0.0
 var dead := false
 var hpbar: Node3D
 var bar_fill: MeshInstance3D
+var hit_t := 0.0          # >0 while showing a flinch reaction
+var hit_clip := "Hit_A"
+var spawn_t := 0.0        # >0 while rising from the ground (no acting yet)
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -44,9 +47,12 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "skeleton")
 	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
-	_play("Idle_A")
 	add_to_group("enemies")
 	_make_hpbar()
+	# rise out of the ground before marching
+	var sa := ap.get_animation("Spawn_Ground")
+	spawn_t = sa.length if sa != null else 0.0
+	_play("Spawn_Ground" if spawn_t > 0.0 else "Idle_A")
 
 
 const BAR_W := 0.9
@@ -67,6 +73,12 @@ func _physics_process(delta: float) -> void:
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
 	bar_fill.scale.x = frac
 	bar_fill.position.x = -BAR_W * 0.5 * (1.0 - frac)   # anchor left -> empties right to left
+	# spawning: stand still and finish rising out of the ground
+	if spawn_t > 0.0:
+		spawn_t -= delta
+		velocity = Vector3.ZERO
+		_play("Spawn_Ground")
+		return
 	atk_cd -= delta
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
@@ -89,12 +101,19 @@ func _physics_process(delta: float) -> void:
 		velocity = velocity.lerp(target, 0.3)   # smooth so direction changes don't buzz
 	move_and_slide()
 	_face(game.keep_pos)
-	if in_range:
-		_play("Interact")
+	# damage the Keep on cadence regardless of the displayed clip
+	if in_range and atk_cd <= 0.0:
+		atk_cd = atk_interval
+		game.damage_keep(dmg)
+		anim = ""   # restart the swing clip on each strike
+	# animation (a hit flinch briefly overrides everything else)
+	if hit_t > 0.0:
+		hit_t -= delta
+		_play(hit_clip)
 		ap.speed_scale = 1.0
-		if atk_cd <= 0.0:
-			atk_cd = atk_interval
-			game.damage_keep(dmg)
+	elif in_range:
+		_play("Use_Item")        # swing at the Keep
+		ap.speed_scale = 1.0
 	elif velocity.length() > 0.05:
 		_play("Walking_C")
 		ap.speed_scale = speed / WALK_REF
@@ -123,6 +142,11 @@ func take_damage(amount: float) -> void:
 	hp -= amount
 	if hp <= 0.0:
 		_die()
+		return
+	# brief flinch (skip while attacking the Keep so it keeps swinging)
+	hit_clip = "Hit_A" if randf() < 0.5 else "Hit_B"
+	hit_t = 0.16
+	anim = ""   # force the flinch clip to restart even if already showing
 
 
 func _die() -> void:
@@ -132,7 +156,7 @@ func _die() -> void:
 	collision_mask = 0
 	remove_from_group("enemies")   # also drops out of others' separation checks
 	died.emit(reward, global_position)
-	_play("Death_A")
+	_play("Death_A" if randf() < 0.5 else "Death_B")
 	ap.speed_scale = 1.0
 	get_tree().create_timer(1.6).timeout.connect(queue_free)
 

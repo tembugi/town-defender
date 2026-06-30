@@ -42,10 +42,11 @@ func _physics_process(delta: float) -> void:
 		var to: Vector3 = e.global_position - global_position
 		if Vector2(to.x, to.z).length() <= REACH:
 			_face(e.global_position)
-			_play("Interact")
+			_play("Use_Item")
 			ap.speed_scale = 1.0
 			if atk_cd <= 0.0:
 				atk_cd = ATK_CD
+				anim = ""   # restart the swing clip on each strike
 				_strike(e)
 		else:
 			_move_toward(e.global_position, delta)

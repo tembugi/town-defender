@@ -374,7 +374,7 @@ func _process(delta: float) -> void:
 	var has_target := _target_in_cone(hero.position, hfwd)
 	if has_target and hero_atk_cd <= 0.0:
 		hero_atk_cd = HERO_ATK_CD
-		hero.attack_anim_t = 0.35
+		hero.swing()
 		_hero_swing(hero.position, hfwd)
 	if moving or has_target:
 		hero.gather_target = null
