@@ -7,7 +7,8 @@ extends CharacterBody3D
 const CHAR := "res://Models/enemies/Skeleton_Minion.glb"
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
-const ATTACK_RANGE := 2.2
+const ATTACK_RANGE := 2.2        # vs the (large) Keep
+const HERO_ATTACK_RANGE := 1.4   # vs the hero: under the hero's 1.6 reach, so the player out-ranges them
 const SEP_RADIUS := 1.4     # raiders push apart within this distance...
 const SEP_WEIGHT := 1.3     # ...strongly enough to flow around each other to open gaps
 const TANGENT_WEIGHT := 1.4 # sidestep force when a neighbour blocks the path to the Keep
@@ -96,7 +97,7 @@ func _physics_process(delta: float) -> void:
 	var target_pos: Vector3 = game.hero.global_position if aggroed else game.keep_pos
 	var to: Vector3 = target_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
-	var in_range := dist <= ATTACK_RANGE
+	var in_range: bool = dist <= (HERO_ATTACK_RANGE if aggroed else ATTACK_RANGE)
 	if in_range:
 		# plant and attack; a packed crowd with nowhere to go stops dead, not jitters
 		velocity = Vector3.ZERO
@@ -209,6 +210,7 @@ func _die() -> void:
 	remove_from_group("enemies")   # also drops out of others' separation checks
 	died.emit(reward, global_position)
 	game._puff(global_position + Vector3(0, 0.4, 0), Color(0.5, 0.5, 0.55), 10, 2.2)   # dust burst
+	Sfx.play("enemy_death", -5.0, 0.18, 5)
 	_play("Death_A" if randf() < 0.5 else "Death_B")
 	ap.speed_scale = 1.0
 	# body lies on the ground, then sinks away and frees itself after a delay

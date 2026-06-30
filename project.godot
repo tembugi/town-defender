@@ -15,6 +15,10 @@ run/main_scene="res://Main3D.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Sfx="*res://scripts/Sfx.gd"
+
 [display]
 
 window/size/viewport_width=720

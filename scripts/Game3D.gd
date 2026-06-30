@@ -410,6 +410,7 @@ func _process(delta: float) -> void:
 			continue
 		if Vector2(rd.position.x - hero.position.x, rd.position.z - hero.position.z).length() <= HERO_PICKUP:
 			_gain_gold(rd.pick_up())
+			Sfx.play("coin", -4.0, 0.12, 3)
 	# the swing is universal: it works on the move, faces wherever the hero faces
 	# (no lock-on), and acts on whatever is at least partly inside the cone --
 	# enemies take damage, trees/rocks get chopped. A swing only starts if there's
@@ -419,6 +420,7 @@ func _process(delta: float) -> void:
 	if has_target and hero_atk_cd <= 0.0:
 		hero_atk_cd = HERO_ATK_CD
 		hero.swing()
+		Sfx.play("swing", -6.0, 0.15, 3)
 		_hero_swing(hero.position, hfwd)
 	if moving or has_target:
 		hero.gather_target = null
@@ -535,6 +537,7 @@ func damage_hero(amt: float) -> void:
 	_update_hero_hud()
 	Rig.flash(hero, hero.model, Color(1, 0.3, 0.3))
 	_camera_shake(0.08)
+	Sfx.play("hero_hurt", -3.0, 0.1, 3)
 	if hero_hp <= 0.0:
 		_end_game(false, "DEFEAT! The hero has fallen.")
 
@@ -603,6 +606,7 @@ func _gain_gold(amt: int) -> void:
 
 func worker_deposit(amt: int) -> void:
 	_gain_gold(amt)
+	Sfx.play("coin", -6.0, 0.12, 3)
 
 
 func hire_worker() -> void:
@@ -610,6 +614,7 @@ func hire_worker() -> void:
 		return
 	gold -= HIRE_COST
 	lbl_gold.text = "Gold: %d" % gold
+	Sfx.play("hire", -3.0, 0.05, 2)
 	var w := Worker3D.new()
 	w.position = keep_pos + Vector3(randf_range(-1.5, 1.5), 0, 2.0)
 	add_child(w)
@@ -661,6 +666,7 @@ func _construct(pad: BuildPad3D) -> void:
 	gold -= pad.cost
 	lbl_gold.text = "Gold: %d" % gold
 	pad.mark_built()
+	Sfx.play("build", -3.0, 0.05, 3)
 	var bscale: float = BUILDING_SCALE.get(pad.btype, 1.0)
 	var b := (load(pad.building_path) as PackedScene).instantiate()
 	b.position = pad.position
@@ -744,19 +750,27 @@ func _target_in_cone(origin: Vector3, fwd: Vector3) -> bool:
 # that leaves the zone in time is missed.
 func _hero_swing(origin: Vector3, fwd: Vector3) -> void:
 	get_tree().create_timer(HERO_WINDUP).timeout.connect(func():
+		var hit_any := false
+		var chop_any := false
 		for e in get_tree().get_nodes_in_group("enemies"):
 			var en := e as Enemy3D
 			if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
 				en.take_damage(HERO_DMG, origin)
 				en.add_aggro(1.0)   # hitting it makes it come after the hero
 				_popup(en.global_position + Vector3(0, 2.0, 0), str(int(HERO_DMG)), Color(1, 0.95, 0.5))
+				hit_any = true
 		for n in resource_nodes:
 			if not n.depleted and _cone_overlaps(origin, fwd, n.global_position, n.hit_radius()):
 				# wood chips / stone shards fly off as we chop
 				var chip := Color(0.55, 0.36, 0.18) if n.ntype != "rock" else Color(0.55, 0.57, 0.6)
 				_puff(n.global_position + Vector3(0, 0.8, 0), chip, 6, 2.0)
+				chop_any = true
 				if n.work(HERO_ATK_CD):   # each swing advances felling by one attack interval
-					spawn_drop(n.global_position, n.yield_amt, n.ntype))
+					spawn_drop(n.global_position, n.yield_amt, n.ntype)
+		if hit_any:
+			Sfx.play("hit", -2.0, 0.12, 4)
+		if chop_any:
+			Sfx.play("chop", -5.0, 0.15, 3))
 
 
 func nearest_enemy(from: Vector3, rng: float) -> Enemy3D:
@@ -784,6 +798,7 @@ func damage_keep(amt: float) -> void:
 		_camera_shake(0.05)
 		hurt_flash.color.a = 0.07
 		create_tween().tween_property(hurt_flash, "color:a", 0.0, 0.35)
+		Sfx.play("keep_hit", -4.0, 0.1, 2)
 	if keep_hp <= 0.0:
 		_end_game(false)
 
@@ -826,6 +841,7 @@ func start_wave() -> void:
 	in_combat = true
 	wave_cd = WAVE_CD
 	lbl_wave.text = "Wave: %d/%d" % [wave, TOTAL_WAVES]
+	Sfx.play("wave", -3.0, 0.05, 1)
 
 
 func _enemy_cfg(n: int) -> Dictionary:
@@ -885,6 +901,8 @@ func _end_game(victory: bool, defeat_text := "DEFEAT! The Keep has fallen.") -> 
 	if victory:
 		lbl_end.text = "VICTORY! The town stands."
 		lbl_end.add_theme_color_override("font_color", Color(1, 0.9, 0.35))
+		Sfx.play("victory", 0.0, 0.0, 1)
 	else:
 		lbl_end.text = defeat_text
 		lbl_end.add_theme_color_override("font_color", Color(0.95, 0.4, 0.4))
+		Sfx.play("defeat", 0.0, 0.0, 1)
