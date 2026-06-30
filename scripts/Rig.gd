@@ -50,20 +50,39 @@ static func attach(character: Node, source := "adventurer") -> AnimationPlayer:
 
 
 # A camera-facing quad for HP bars (keeps scale so the fill can shrink).
+# Opaque so overlapping bars never alpha-blend into a darker shade.
 static func bar_quad(col: Color, width := 0.9) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(width, 0.13)
 	m.mesh = q
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
+	mat.albedo_color = Color(col.r, col.g, col.b, 1.0)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.billboard_keep_scale = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.no_depth_test = true
 	m.material_override = mat
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return m
+
+
+# A flat translucent disc used as a fake shadow under characters.
+static func blob_shadow(radius := 0.38) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = radius
+	cyl.bottom_radius = radius
+	cyl.height = 0.02
+	cyl.radial_segments = 16
+	m.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0, 0, 0, 0.28)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.position.y = 0.02
 	return m
 
 

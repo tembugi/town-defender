@@ -26,6 +26,7 @@ func setup(g: Node) -> void:
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
+	add_child(Rig.blob_shadow())
 	ap = Rig.attach(model)
 	Rig.set_shadows(model, false)
 	_play("Idle_A")

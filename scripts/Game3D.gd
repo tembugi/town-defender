@@ -120,14 +120,12 @@ func _build_environment() -> void:
 	we.environment = env
 	add_child(we)
 
-	# warm sun with cheap, close-range shadows (orthogonal single-split)
+	# warm sun; no real shadows (characters use fake blob shadows instead)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-58, -50, 0)
 	sun.light_color = Color(1.0, 0.95, 0.84)
 	sun.light_energy = 1.4
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-	sun.directional_shadow_max_distance = 30.0
+	sun.shadow_enabled = false
 	add_child(sun)
 
 

@@ -37,6 +37,7 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
+	add_child(Rig.blob_shadow())
 	ap = Rig.attach(model, "skeleton")
 	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
 	_play("Idle_A")

@@ -26,6 +26,7 @@ func _ready() -> void:
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
+	add_child(Rig.blob_shadow(0.42))
 	ap = Rig.attach(model)
 	_play("Idle_A")
 
