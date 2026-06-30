@@ -11,7 +11,12 @@ const ATTACK_RANGE := 2.2
 const SEP_RADIUS := 1.4     # raiders push apart within this distance...
 const SEP_WEIGHT := 1.3     # ...strongly enough to flow around each other to open gaps
 const TANGENT_WEIGHT := 1.4 # sidestep force when a neighbour blocks the path to the Keep
+const AVOID_WEIGHT := 1.7   # steer around trees/rocks/buildings (no path-finding, just avoid)
 const CORPSE_LINGER := 10.0 # seconds a body lies on the ground before sinking away
+const AGGRO_DECAY := 0.2    # aggro bleeds off per second when not being hit
+
+var aggro := 0.0            # builds when the hero hits us; over threshold -> chase hero
+var aggro_threshold := 0.5  # per-enemy (tougher foes need more before they turn)
 
 signal died(reward: int, pos: Vector3)
 
@@ -44,6 +49,7 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	dmg = cfg.get("dmg", 6.0)
 	reward = cfg.get("reward", 5)
 	speed = cfg.get("speed", 1.6)
+	aggro_threshold = cfg.get("aggro_threshold", 0.5)
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
@@ -84,7 +90,11 @@ func _physics_process(delta: float) -> void:
 		_play("Spawn_Ground")
 		return
 	atk_cd -= delta
-	var to: Vector3 = game.keep_pos - global_position
+	aggro = maxf(0.0, aggro - AGGRO_DECAY * delta)
+	# once aggroed (and the hero is alive), chase and attack the hero instead
+	var aggroed: bool = aggro >= aggro_threshold and is_instance_valid(game.hero) and not game.game_over
+	var target_pos: Vector3 = game.hero.global_position if aggroed else game.keep_pos
+	var to: Vector3 = target_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
 	var in_range := dist <= ATTACK_RANGE
 	if in_range:
@@ -92,26 +102,30 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 	else:
 		var seek := Vector3(to.x, 0, to.z).normalized()
-		var sep := _separation()
-		# when a neighbour sits directly between us and the Keep, sidestep around
-		# it (consistent rotational direction) instead of stopping behind it -> the
-		# crowd fans out and surrounds the Keep rather than forming a single file
+		# steer away from the crowd AND from obstacles (trees/rocks/buildings) so we
+		# flow around them instead of pinning against a tree on the way in
+		var push := _separation() * SEP_WEIGHT + _avoid() * AVOID_WEIGHT
+		# when something sits directly between us and the target, sidestep around it
+		# (consistent rotation) rather than stalling behind it
 		var block := 0.0
-		if sep.length() > 0.01:
-			block = maxf(0.0, -sep.normalized().dot(seek))
+		if push.length() > 0.01:
+			block = maxf(0.0, -push.normalized().dot(seek))
 		var tangent := Vector3(-seek.z, 0.0, seek.x)
-		var steer := seek + sep * SEP_WEIGHT + tangent * (block * TANGENT_WEIGHT)
+		var steer := seek + push + tangent * (block * TANGENT_WEIGHT)
 		var target := (steer.normalized() if steer.length() > 0.05 else seek) * speed
 		velocity = velocity.lerp(target, 0.3)   # smooth so direction changes don't buzz
 	# decaying knockback rides on top of whatever steering produced
 	knockback = knockback.move_toward(Vector3.ZERO, KB_DECAY * delta)
 	velocity += knockback
 	move_and_slide()
-	_face(game.keep_pos)
-	# damage the Keep on cadence regardless of the displayed clip
+	_face(target_pos)
+	# attack on cadence (hero if aggroed, otherwise the Keep)
 	if in_range and atk_cd <= 0.0:
 		atk_cd = atk_interval
-		game.damage_keep(dmg)
+		if aggroed:
+			game.damage_hero(dmg)
+		else:
+			game.damage_keep(dmg)
 		anim = ""   # restart the swing clip on each strike
 	# animation (a hit flinch briefly overrides everything else)
 	if hit_t > 0.0:
@@ -127,6 +141,31 @@ func _physics_process(delta: float) -> void:
 	else:
 		_play("Idle_A")          # held by the crowd: stand, don't skate in place
 		ap.speed_scale = 1.0
+
+
+func add_aggro(amount: float) -> void:
+	aggro = minf(aggro + amount, aggro_threshold + 2.0)   # cap so it bleeds off fast
+
+
+# Steer away from static obstacles (trees, rocks, finished buildings).
+func _avoid() -> Vector3:
+	var a := Vector3.ZERO
+	for n in game.resource_nodes:
+		if not n.depleted:
+			a += _repel(n.global_position, n.hit_radius() + 0.6)
+	for p in game.build_pads:
+		if p.built and p.btype != "train":
+			a += _repel(p.position, 1.3)
+	return a
+
+
+func _repel(obs: Vector3, radius: float) -> Vector3:
+	var away: Vector3 = global_position - obs
+	away.y = 0.0
+	var d := away.length()
+	if d > 0.001 and d < radius:
+		return (away / d) * (1.0 - d / radius)
+	return Vector3.ZERO
 
 
 # push away from nearby raiders, weighted stronger the closer they are

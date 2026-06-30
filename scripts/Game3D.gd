@@ -88,6 +88,12 @@ var keep_fx_cd := 0.0       # throttle for keep-hit shake/flash during a siege
 var hurt_flash: ColorRect   # red full-screen flash when the Keep is hit
 var hud_keep_fill: ColorRect   # Town Hall HP bar fill in the HUD
 const KEEP_HUD_W := 240.0
+const HERO_MAX_HP := 100.0
+const HERO_REGEN := 5.0        # hp/sec regen when not recently hit
+var hero_hp := HERO_MAX_HP
+var hero_hit_cd := 0.0         # time since last hit; regen waits for this
+var hud_hero_fill: ColorRect
+var lbl_hero: Label
 var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
@@ -271,11 +277,25 @@ func _build_touch_ui() -> void:
 	lbl_keep.add_theme_font_size_override("font_size", 18)
 	layer.add_child(lbl_keep)
 	_update_keep_hud()
-	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 86), Color(0.8, 1, 0.8))
+	# Hero HP bar, just below the Town Hall bar
+	var hero_bg := ColorRect.new()
+	hero_bg.color = Color(0, 0, 0, 0.55)
+	hero_bg.position = Vector2(22, 80)
+	hero_bg.size = Vector2(KEEP_HUD_W, 26)
+	layer.add_child(hero_bg)
+	hud_hero_fill = ColorRect.new()
+	hud_hero_fill.position = Vector2(22, 80)
+	hud_hero_fill.size = Vector2(KEEP_HUD_W, 26)
+	layer.add_child(hud_hero_fill)
+	lbl_hero = _hud_label("", Vector2(30, 81), Color(1, 1, 1))
+	lbl_hero.add_theme_font_size_override("font_size", 18)
+	layer.add_child(lbl_hero)
+	_update_hero_hud()
+	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 116), Color(0.8, 1, 0.8))
 	layer.add_child(lbl_pop)
-	lbl_soldiers = _hud_label("Soldiers: 0", Vector2(22, 120), Color(1, 0.8, 0.6))
+	lbl_soldiers = _hud_label("Soldiers: 0", Vector2(22, 150), Color(1, 0.8, 0.6))
 	layer.add_child(lbl_soldiers)
-	lbl_wave = _hud_label("Wave: 0/%d" % TOTAL_WAVES, Vector2(22, 154), Color(0.95, 0.7, 0.7))
+	lbl_wave = _hud_label("Wave: 0/%d" % TOTAL_WAVES, Vector2(22, 184), Color(0.95, 0.7, 0.7))
 	layer.add_child(lbl_wave)
 
 	btn_hire = _hud_button("HIRE\nWORKER\n%dg" % HIRE_COST, -160, Color(0.45, 0.7, 0.45))
@@ -422,6 +442,13 @@ func _process(delta: float) -> void:
 			income_t = 3.0
 			_gain_gold(workshops * 3)
 
+	# hero out-of-combat HP regen
+	if hero_hit_cd > 0.0:
+		hero_hit_cd -= delta
+	elif hero_hp < HERO_MAX_HP:
+		hero_hp = minf(HERO_MAX_HP, hero_hp + HERO_REGEN * delta)
+		_update_hero_hud()
+
 	_update_waves(delta)
 
 	# keep health bar (always visible, empties right to left)
@@ -493,6 +520,25 @@ func _update_keep_hud() -> void:
 	lbl_keep.text = "Town Hall: %d / %d" % [maxi(0, int(keep_hp)), int(KEEP_MAX)]
 
 
+func _update_hero_hud() -> void:
+	var f := clampf(hero_hp / HERO_MAX_HP, 0.0, 1.0)
+	hud_hero_fill.size.x = KEEP_HUD_W * f
+	hud_hero_fill.color = Color(0.85, 0.3, 0.3).lerp(Color(0.45, 0.7, 0.95), f)   # red when low
+	lbl_hero.text = "Hero: %d / %d" % [maxi(0, int(hero_hp)), int(HERO_MAX_HP)]
+
+
+func damage_hero(amt: float) -> void:
+	if game_over:
+		return
+	hero_hp -= amt
+	hero_hit_cd = 2.5
+	_update_hero_hud()
+	Rig.flash(hero, hero.model, Color(1, 0.3, 0.3))
+	_camera_shake(0.08)
+	if hero_hp <= 0.0:
+		_end_game(false, "DEFEAT! The hero has fallen.")
+
+
 func _camera_shake(amp: float) -> void:
 	shake_amt = maxf(shake_amt * clampf(shake_t / SHAKE_DUR, 0.0, 1.0), amp)
 	shake_t = SHAKE_DUR
@@ -506,9 +552,12 @@ func _popup(pos: Vector3, text: String, col: Color) -> void:
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
 	l.fixed_size = true
-	l.pixel_size = 0.0016
-	l.font_size = 40
-	l.outline_size = 5
+	# render the glyph big (sharp) but keep it small on screen via pixel_size;
+	# a thick dark outline gives it weight/boldness and readability over the field
+	l.pixel_size = 0.0007
+	l.font_size = 110
+	l.outline_size = 22
+	l.outline_modulate = Color(0, 0, 0, 0.9)
 	l.modulate = col
 	add_child(l)
 	var tw := create_tween()
@@ -699,6 +748,7 @@ func _hero_swing(origin: Vector3, fwd: Vector3) -> void:
 			var en := e as Enemy3D
 			if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
 				en.take_damage(HERO_DMG, origin)
+				en.add_aggro(1.0)   # hitting it makes it come after the hero
 				_popup(en.global_position + Vector3(0, 2.0, 0), str(int(HERO_DMG)), Color(1, 0.95, 0.5))
 		for n in resource_nodes:
 			if not n.depleted and _cone_overlaps(origin, fwd, n.global_position, n.hit_radius()):
@@ -829,12 +879,12 @@ func _on_enemy_died(reward: int, _pos: Vector3) -> void:
 	_gain_gold(reward)
 
 
-func _end_game(victory: bool) -> void:
+func _end_game(victory: bool, defeat_text := "DEFEAT! The Keep has fallen.") -> void:
 	game_over = true
 	overlay.visible = true
 	if victory:
 		lbl_end.text = "VICTORY! The town stands."
 		lbl_end.add_theme_color_override("font_color", Color(1, 0.9, 0.35))
 	else:
-		lbl_end.text = "DEFEAT! The Keep has fallen."
+		lbl_end.text = defeat_text
 		lbl_end.add_theme_color_override("font_color", Color(0.95, 0.4, 0.4))
