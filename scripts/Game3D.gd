@@ -29,6 +29,8 @@ const BUILD_RANGE := 1.8
 const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
 const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
+const TOWER := "res://Models/hexagon/buildings/blue/building_tower_A_blue.gltf"
+const WALL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
 
 # the pack's buildings vary wildly in size; normalise them to proper buildings
 const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
@@ -69,6 +71,9 @@ var resource_nodes: Array[ResourceNode3D] = []
 var drops: Array[ResourceDrop3D] = []   # loose resources on the ground awaiting pickup
 var workers: Array[Worker3D] = []
 var build_pads: Array[BuildPad3D] = []
+var towers: Array = []
+var walls: Array[Wall3D] = []
+const WALL_BLOCK_RANGE := 1.6   # how close a raider must be to a wall to attack it
 var workshops := 0
 var barracks_count := 0
 var income_t := 0.0
@@ -651,6 +656,10 @@ func _build_pads() -> void:
 		{"type": "house", "cost": 20, "label": "House", "path": HOME, "pos": Vector3(-3.6, 0, 1.7)},
 		{"type": "workshop", "cost": 45, "label": "Market", "path": MARKET, "pos": Vector3(3.6, 0, 1.7)},
 		{"type": "barracks", "cost": 80, "label": "Barracks", "path": BARRACKS, "pos": Vector3(0, 0, -3.6)},
+		{"type": "tower", "cost": 70, "label": "Arrow Tower", "path": TOWER, "pos": Vector3(-5.0, 0, -1.6)},
+		{"type": "tower", "cost": 70, "label": "Arrow Tower", "path": TOWER, "pos": Vector3(5.0, 0, -1.6)},
+		{"type": "wall", "cost": 25, "label": "Wall", "path": WALL, "pos": Vector3(-2.3, 0, -2.7)},
+		{"type": "wall", "cost": 25, "label": "Wall", "path": WALL, "pos": Vector3(2.3, 0, -2.7)},
 	]
 	for d in defs:
 		var p := BuildPad3D.new()
@@ -658,6 +667,28 @@ func _build_pads() -> void:
 		p.setup(self, d["type"], d["cost"], d["label"], d["path"])
 		add_child(p)
 		build_pads.append(p)
+
+
+func _pop_in(node: Node3D, target_scale: float) -> void:
+	node.scale = Vector3.ONE * target_scale * 0.3
+	create_tween().tween_property(node, "scale", Vector3.ONE * target_scale, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+# Nearest live wall close to `from` that lies in the `dir` we want to travel
+# (i.e. is blocking our path), so raiders chew through it instead of stalling.
+func nearest_blocking_wall(from: Vector3, dir: Vector3) -> Wall3D:
+	var best: Wall3D = null
+	var bestd := WALL_BLOCK_RANGE
+	for w in walls:
+		if not is_instance_valid(w) or w.dead:
+			continue
+		var to: Vector3 = w.global_position - from
+		to.y = 0.0
+		var d := to.length()
+		if d < bestd and d > 0.001 and to.normalized().dot(dir) > 0.25:
+			bestd = d
+			best = w
+	return best
 
 
 func _too_close_to_pad(p: Vector3, clearance: float) -> bool:
@@ -687,6 +718,23 @@ func _construct(pad: BuildPad3D) -> void:
 	lbl_gold.text = "Gold: %d" % gold
 	pad.mark_built()
 	Sfx.play("build", -3.0, 0.05, 3)
+	# towers and walls are their own controller nodes (not plain buildings)
+	if pad.btype == "tower":
+		var t := Tower3D.new()
+		t.position = pad.position
+		add_child(t)
+		t.setup(self)
+		towers.append(t)
+		_pop_in(t, 1.0)
+		return
+	if pad.btype == "wall":
+		var w := Wall3D.new()
+		w.position = pad.position
+		add_child(w)
+		w.setup(self)
+		walls.append(w)
+		_pop_in(w, 1.0)
+		return
 	var bscale: float = BUILDING_SCALE.get(pad.btype, 1.0)
 	var b := (load(pad.building_path) as PackedScene).instantiate()
 	b.position = pad.position

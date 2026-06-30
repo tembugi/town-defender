@@ -121,11 +121,16 @@ func _physics_process(delta: float) -> void:
 	knockback = knockback.move_toward(Vector3.ZERO, KB_DECAY * delta)
 	velocity += knockback
 	move_and_slide()
-	_face(target_pos)
-	# attack on cadence (hero if aggroed, otherwise the Keep)
-	if in_range and atk_cd <= 0.0:
+	# a wall directly in our path takes attack priority (chew through it)
+	var wall: Wall3D = game.nearest_blocking_wall(global_position, Vector3(to.x, 0, to.z).normalized())
+	_face(wall.global_position if wall != null else target_pos)
+	# attack on cadence: blocking wall > primary target (hero if aggroed, else Keep)
+	var attacking: bool = wall != null or in_range
+	if attacking and atk_cd <= 0.0:
 		atk_cd = atk_interval
-		if aggroed:
+		if wall != null:
+			wall.take_damage(dmg)
+		elif aggroed:
 			game.damage_hero(dmg)
 		else:
 			game.damage_keep(dmg)
@@ -135,8 +140,8 @@ func _physics_process(delta: float) -> void:
 		hit_t -= delta
 		_play(hit_clip)
 		ap.speed_scale = 1.0
-	elif in_range:
-		_play("Melee_1H_Attack_Chop")        # swing at the Keep
+	elif attacking:
+		_play("Melee_1H_Attack_Chop")
 		ap.speed_scale = 1.0
 	elif velocity.length() > 0.05:
 		_play("Walking_C")
@@ -157,7 +162,8 @@ func _avoid() -> Vector3:
 		if not n.depleted:
 			a += _repel(n.global_position, n.hit_radius() + 0.6)
 	for p in game.build_pads:
-		if p.built and p.btype != "train":
+		# avoid solid buildings/towers, but NOT walls (we attack through those)
+		if p.built and p.btype != "train" and p.btype != "wall":
 			a += _repel(p.position, 1.3)
 	return a
 
