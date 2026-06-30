@@ -24,7 +24,6 @@ const HEX_GRASS := "res://Models/hexagon/tiles/base/hex_grass.gltf"
 const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
 
 const HIRE_COST := 25
-const GATHER_RANGE := 1.6
 const BUILD_RANGE := 1.8
 
 const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
@@ -367,19 +366,20 @@ func _process(delta: float) -> void:
 			continue
 		if Vector2(rd.position.x - hero.position.x, rd.position.z - hero.position.z).length() <= HERO_PICKUP:
 			_gain_gold(rd.pick_up())
-	# combat works on the move and swings where the hero faces (no lock-on).
-	# only start a swing if an enemy is at least partly inside the attack cone;
-	# the hit re-checks the cone on landing, so a target that dodges out misses.
+	# the swing is universal: it works on the move, faces wherever the hero faces
+	# (no lock-on), and acts on whatever is at least partly inside the cone --
+	# enemies take damage, trees/rocks get chopped. A swing only starts if there's
+	# such a target, and the hit re-checks the cone on landing (dodge/move out = miss).
 	var hfwd := _hero_forward()
-	var threat := _enemy_in_cone(hero.position, hfwd)
-	if threat and hero_atk_cd <= 0.0:
+	var has_target := _target_in_cone(hero.position, hfwd)
+	if has_target and hero_atk_cd <= 0.0:
 		hero_atk_cd = HERO_ATK_CD
 		hero.attack_anim_t = 0.35
 		_hero_swing(hero.position, hfwd)
-	if moving or threat:
+	if moving or has_target:
 		hero.gather_target = null
 	else:
-		# standing still and nothing to fight: build on a pad, else gather a node
+		# standing still with nothing in the cone: build on a pad we're stood on
 		var pad := nearest_pad(hero.position, BUILD_RANGE)
 		if pad != null and gold >= pad.cost:
 			hero.gather_target = pad
@@ -389,10 +389,7 @@ func _process(delta: float) -> void:
 				else:
 					_construct(pad)
 		else:
-			var node := nearest_resource(hero.position, GATHER_RANGE)
-			hero.gather_target = node
-			if node != null and node.work(delta):
-				spawn_drop(node.global_position, node.yield_amt, node.ntype)   # fell -> drop
+			hero.gather_target = null
 
 	# passive income from workshops/markets
 	if workshops > 0:
@@ -564,15 +561,15 @@ func _hero_forward() -> Vector3:
 # True if an enemy's body circle (radius ENEMY_HIT_R) overlaps the cone defined by
 # apex `origin`, axis `fwd`, half-angle HERO_ARC and radius HERO_ATK_RANGE. This is
 # an exact circle-vs-(convex)-sector overlap test in the XZ plane.
-func _cone_overlaps(origin: Vector3, fwd: Vector3, c: Vector3) -> bool:
+func _cone_overlaps(origin: Vector3, fwd: Vector3, c: Vector3, r := ENEMY_HIT_R) -> bool:
 	var rel := c - origin
 	rel.y = 0.0
 	var d := rel.length()
-	if d <= ENEMY_HIT_R:
+	if d <= r:
 		return true                                  # right on top of the hero
 	var ang := acos(clampf(rel.dot(fwd) / d, -1.0, 1.0))
 	if ang <= HERO_ARC:
-		return d <= HERO_ATK_RANGE + ENEMY_HIT_R     # inside the wedge: just the radius
+		return d <= HERO_ATK_RANGE + r               # inside the wedge: just the radius
 	# outside the wedge angularly: distance to the nearer edge ray (segment 0..R)
 	var perp := Vector3(-fwd.z, 0.0, fwd.x)
 	var s := signf(rel.dot(perp))
@@ -581,26 +578,36 @@ func _cone_overlaps(origin: Vector3, fwd: Vector3, c: Vector3) -> bool:
 	var a := s * HERO_ARC
 	var edge := Vector3(fwd.x * cos(a) - fwd.z * sin(a), 0.0, fwd.x * sin(a) + fwd.z * cos(a))
 	var t := clampf(rel.dot(edge), 0.0, HERO_ATK_RANGE)
-	return rel.distance_to(edge * t) <= ENEMY_HIT_R
+	return rel.distance_to(edge * t) <= r
 
 
-func _enemy_in_cone(origin: Vector3, fwd: Vector3) -> bool:
+# Is there anything actionable (a live enemy or a standing resource node) at least
+# partly inside the cone? Used to decide whether a swing should start.
+func _target_in_cone(origin: Vector3, fwd: Vector3) -> bool:
 	for e in get_tree().get_nodes_in_group("enemies"):
 		var en := e as Enemy3D
 		if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
 			return true
+	for n in resource_nodes:
+		if not n.depleted and _cone_overlaps(origin, fwd, n.global_position, n.hit_radius()):
+			return true
 	return false
 
 
-# A directional melee swing. The cone (apex + facing) is committed at swing start;
-# after a short windup the hit lands on every live enemy still overlapping that
-# committed cone, so a target that leaves the zone in time is missed.
+# A universal directional swing. The cone (apex + facing) is committed at swing
+# start; after a short windup it acts on everything still overlapping that cone --
+# enemies take damage, resource nodes get chopped (and drop on felling). Anything
+# that leaves the zone in time is missed.
 func _hero_swing(origin: Vector3, fwd: Vector3) -> void:
 	get_tree().create_timer(HERO_WINDUP).timeout.connect(func():
 		for e in get_tree().get_nodes_in_group("enemies"):
 			var en := e as Enemy3D
 			if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
-				en.take_damage(HERO_DMG))
+				en.take_damage(HERO_DMG)
+		for n in resource_nodes:
+			if not n.depleted and _cone_overlaps(origin, fwd, n.global_position, n.hit_radius()):
+				if n.work(HERO_ATK_CD):   # each swing advances felling by one attack interval
+					spawn_drop(n.global_position, n.yield_amt, n.ntype))
 
 
 func nearest_enemy(from: Vector3, rng: float) -> Enemy3D:

@@ -38,6 +38,11 @@ func setup(type: String) -> void:
 	add_child(body)
 
 
+# Body radius for the hero's cone-overlap test (matches the collider footprint).
+func hit_radius() -> float:
+	return 0.5 if ntype == "rock" else 0.4
+
+
 func work(delta: float) -> bool:
 	if depleted:
 		return false
