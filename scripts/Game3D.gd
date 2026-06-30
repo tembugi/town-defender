@@ -132,6 +132,16 @@ var btn_wave: Button
 var btn_build: Button          # toggles the build menu
 var build_menu: Array[Button] = []
 var build_menu_open := false
+# placement (ghost) mode
+var btn_place: Button
+var btn_flip: Button
+var btn_cancel: Button
+var build_mode := false
+var build_btype := ""
+var build_cost := 0
+var build_flip := 0.0          # extra yaw from the Flip button
+var ghost: Node3D              # translucent preview that floats in front of the hero
+var ghost_mat: StandardMaterial3D
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
@@ -355,11 +365,24 @@ func _build_touch_ui() -> void:
 		mb.set_meta("cost", bdef["c"])
 		var bt: String = bdef["t"]
 		var bc: int = bdef["c"]
-		mb.pressed.connect(func(): _place_building(bt, bc))
+		mb.pressed.connect(func(): _enter_build_mode(bt, bc))
 		mb.visible = false
 		build_menu.append(mb)
 		layer.add_child(mb)
 		off -= 78.0
+	# placement-mode buttons (hidden until a structure is selected)
+	btn_place = _hud_button("PLACE", -160, Color(0.4, 0.65, 0.4), true)
+	btn_place.pressed.connect(_confirm_place)
+	btn_place.visible = false
+	layer.add_child(btn_place)
+	btn_flip = _hud_button("FLIP", -160 - 130, Color(0.45, 0.55, 0.7), true)
+	btn_flip.pressed.connect(func(): build_flip = fmod(build_flip + PI * 0.5, TAU))
+	btn_flip.visible = false
+	layer.add_child(btn_flip)
+	btn_cancel = _hud_button("CANCEL", -160 - 260, Color(0.7, 0.4, 0.4), true)
+	btn_cancel.pressed.connect(_exit_build_mode)
+	btn_cancel.visible = false
+	layer.add_child(btn_cancel)
 
 	# end-of-game overlay
 	overlay = ColorRect.new()
@@ -455,6 +478,76 @@ func _toggle_build_menu() -> void:
 	btn_build.text = "BUILD ▲" if build_menu_open else "BUILD"
 
 
+func _enter_build_mode(btype: String, cost: int) -> void:
+	# close the menu, spawn the ghost, swap the HUD into placement mode
+	build_menu_open = false
+	for b in build_menu:
+		b.visible = false
+	btn_build.text = "BUILD"
+	btn_build.visible = false
+	build_mode = true
+	build_btype = btype
+	build_cost = cost
+	build_flip = 0.0
+	ghost = _make_ghost(btype)
+	add_child(ghost)
+	hero.cone.visible = false        # the ghost replaces the attack cone while building
+	btn_place.visible = true
+	btn_flip.visible = true
+	btn_cancel.visible = true
+
+
+func _exit_build_mode() -> void:
+	build_mode = false
+	if is_instance_valid(ghost):
+		ghost.queue_free()
+	ghost = null
+	hero.cone.visible = true
+	btn_build.visible = true
+	btn_place.visible = false
+	btn_flip.visible = false
+	btn_cancel.visible = false
+
+
+func _confirm_place() -> void:
+	if _place_building(build_btype, build_cost, build_flip):
+		if gold < build_cost:
+			_exit_build_mode()   # can't afford another -> leave placement mode
+
+
+func _update_ghost() -> void:
+	if ghost == null:
+		return
+	var pos: Vector3 = hero.position + _hero_forward() * 2.0
+	pos.y = 0.0
+	ghost.position = pos
+	ghost.rotation.y = hero.model.rotation.y + build_flip
+	var ok: bool = gold >= build_cost and _valid_build_spot(pos)
+	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
+
+
+# A translucent green/red preview of a structure (no collider, no logic).
+func _make_ghost(btype: String) -> Node3D:
+	var path: String = {"house": HOME, "workshop": MARKET, "barracks": BARRACKS, "tower": TOWER, "wall": WALL}[btype]
+	var gscale: float = BUILDING_SCALE.get(btype, 1.0)
+	if btype == "tower":
+		gscale = Tower3D.SCALE
+	elif btype == "wall":
+		gscale = Wall3D.SCALE
+	var g := (load(path) as PackedScene).instantiate()
+	g.scale = Vector3.ONE * gscale
+	ghost_mat = StandardMaterial3D.new()
+	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45)
+	ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var meshes: Array = []
+	Rig._collect_meshes(g, meshes)
+	for m in meshes:
+		(m as GeometryInstance3D).material_overlay = ghost_mat
+		(m as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return g
+
+
 func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -505,28 +598,33 @@ func _process(delta: float) -> void:
 		if Vector2(rd.position.x - hero.position.x, rd.position.z - hero.position.z).length() <= HERO_PICKUP:
 			_gain_gold(rd.pick_up())
 			Sfx.play("coin", -4.0, 0.12, 3)
-	# the swing is universal: it works on the move, faces wherever the hero faces
-	# (no lock-on), and acts on whatever is at least partly inside the cone --
-	# enemies take damage, trees/rocks get chopped. A swing only starts if there's
-	# such a target, and the hit re-checks the cone on landing (dodge/move out = miss).
-	var hfwd := _hero_forward()
-	var has_target := _target_in_cone(hero.position, hfwd)
-	if has_target and hero_atk_cd <= 0.0:
-		hero_atk_cd = HERO_ATK_CD
-		hero.swing()
-		Sfx.play("swing", -6.0, 0.15, 3)
-		_hero_swing(hero.position, hfwd)
-	if moving or has_target:
+	if build_mode:
+		# in placement mode the hero only positions the ghost (no combat/training)
+		_update_ghost()
 		hero.gather_target = null
 	else:
-		# standing still with nothing in the cone: train soldiers on a barracks pad
-		var pad := nearest_pad(hero.position, BUILD_RANGE)
-		if pad != null and gold >= pad.cost:
-			hero.gather_target = pad
-			if pad.advance(delta):
-				_train_soldier(pad)
-		else:
+		# the swing is universal: works on the move, faces wherever the hero faces
+		# (no lock-on), acting on whatever is at least partly inside the cone --
+		# enemies take damage, trees/rocks get chopped. The hit re-checks the cone
+		# on landing (dodge/move out = miss).
+		var hfwd := _hero_forward()
+		var has_target := _target_in_cone(hero.position, hfwd)
+		if has_target and hero_atk_cd <= 0.0:
+			hero_atk_cd = HERO_ATK_CD
+			hero.swing()
+			Sfx.play("swing", -6.0, 0.15, 3)
+			_hero_swing(hero.position, hfwd)
+		if moving or has_target:
 			hero.gather_target = null
+		else:
+			# standing still with nothing in the cone: train soldiers on a barracks pad
+			var pad := nearest_pad(hero.position, BUILD_RANGE)
+			if pad != null and gold >= pad.cost:
+				hero.gather_target = pad
+				if pad.advance(delta):
+					_train_soldier(pad)
+			else:
+				hero.gather_target = null
 
 	# passive income from workshops/markets
 	if workshops > 0:
@@ -726,20 +824,20 @@ func hire_worker() -> void:
 # ---------------------------------------------------------------------------
 # Free placement: drops the chosen structure just in front of the hero, oriented
 # to the hero's facing (so walls can run any direction), if the spot is clear.
-func _place_building(btype: String, cost: int) -> void:
+func _place_building(btype: String, cost: int, flip := 0.0) -> bool:
 	_ensure_music()
 	if game_over or gold < cost:
-		return
+		return false
 	var pos: Vector3 = hero.position + _hero_forward() * 2.0
 	pos.y = 0.0
 	if not _valid_build_spot(pos):
 		_popup(hero.position + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
 		Sfx.play("click", -6.0, 0.1, 2)
-		return
+		return false
 	gold -= cost
 	lbl_gold.text = "Gold: %d" % gold
 	Sfx.play("build", -3.0, 0.05, 3)
-	var yaw: float = hero.model.rotation.y
+	var yaw: float = hero.model.rotation.y + flip
 	match btype:
 		"tower":
 			var t := Tower3D.new()
@@ -759,6 +857,7 @@ func _place_building(btype: String, cost: int) -> void:
 			_pop_in(w, 1.0)
 		_:
 			_make_building(btype, pos, yaw)
+	return true
 
 
 func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
