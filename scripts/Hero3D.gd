@@ -21,6 +21,10 @@ var move_input := Vector2.ZERO   # x = world X, y = world Z (set by Game3D)
 var bounds := Rect2()            # XZ play area; clamp position when set
 var gather_target: Node3D = null # when set, face it (enemy to swing at / node / pad)
 var attack_anim_t := 0.0         # >0 while a swing should play, even on the move
+var atk_range := 1.6             # attack-cone radius (set by Game3D to match the math)
+var atk_arc := 0.785             # attack-cone half-angle
+var cone: MeshInstance3D         # the drawn attack cone on the ground
+var cone_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -29,13 +33,42 @@ func _ready() -> void:
 	add_child(model)
 	add_child(Rig.blob_shadow(0.42))
 	Rig.make_unit_body(self)
+	_build_cone()
 	ap = Rig.attach(model)
 	_play("Idle_A")
+
+
+# Flat ground sector showing exactly where a swing connects (apex at the hero,
+# half-angle atk_arc, radius atk_range). Faces +Z locally; rotated to match facing.
+func _build_cone() -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var seg := 20
+	var y := 0.05
+	for i in range(seg):
+		var a0: float = lerpf(-atk_arc, atk_arc, float(i) / seg)
+		var a1: float = lerpf(-atk_arc, atk_arc, float(i + 1) / seg)
+		st.add_vertex(Vector3(0, y, 0))
+		st.add_vertex(Vector3(sin(a0) * atk_range, y, cos(a0) * atk_range))
+		st.add_vertex(Vector3(sin(a1) * atk_range, y, cos(a1) * atk_range))
+	cone = MeshInstance3D.new()
+	cone.mesh = st.commit()
+	cone_mat = StandardMaterial3D.new()
+	cone_mat.albedo_color = Color(1.0, 0.85, 0.3, 0.12)
+	cone_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cone_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cone_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	cone.material_override = cone_mat
+	cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(cone)
 
 
 func _physics_process(delta: float) -> void:
 	attack_anim_t = maxf(0.0, attack_anim_t - delta)
 	var swinging := attack_anim_t > 0.0
+	# the cone tracks our facing and flares brighter on a swing
+	cone.rotation.y = model.rotation.y
+	cone_mat.albedo_color.a = 0.4 if swinging else 0.12
 	# move_input is a world-space XZ direction; its magnitude (0..1) is analog throttle
 	var mag := minf(move_input.length(), 1.0)
 	if mag > 0.15:

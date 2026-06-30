@@ -35,10 +35,12 @@ const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gl
 const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
 const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
-const HERO_ATK_RANGE := 1.5
+const HERO_ATK_RANGE := 1.6
 const HERO_ARC := deg_to_rad(45.0)   # half-angle of the frontal cone the swing hits
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
+const HERO_WINDUP := 0.22            # delay from swing start to the hit landing
+const ENEMY_HIT_R := 0.4             # enemy body radius for "at least partly in the cone"
 const HERO_PICKUP := 1.1             # the player grabs resource piles within this
 const KEEP_MAX := 1500.0
 const TOTAL_WAVES := 8
@@ -99,6 +101,8 @@ func _ready() -> void:
 
 	hero = Hero3D.new()
 	hero.bounds = field_rect
+	hero.atk_range = HERO_ATK_RANGE      # so the drawn cone matches the hit math
+	hero.atk_arc = HERO_ARC
 	hero.position = Vector3(0, 0, 4.0)   # spawn just south of the keep
 	add_child(hero)
 
@@ -363,13 +367,15 @@ func _process(delta: float) -> void:
 			continue
 		if Vector2(rd.position.x - hero.position.x, rd.position.z - hero.position.z).length() <= HERO_PICKUP:
 			_gain_gold(rd.pick_up())
-	# combat works on the move and swings where the hero faces (no lock-on);
-	# damage only lands on enemies inside the frontal arc + range.
-	var threat := nearest_enemy(hero.position, HERO_ATK_RANGE + 0.3) != null
+	# combat works on the move and swings where the hero faces (no lock-on).
+	# only start a swing if an enemy is at least partly inside the attack cone;
+	# the hit re-checks the cone on landing, so a target that dodges out misses.
+	var hfwd := _hero_forward()
+	var threat := _enemy_in_cone(hero.position, hfwd)
 	if threat and hero_atk_cd <= 0.0:
 		hero_atk_cd = HERO_ATK_CD
 		hero.attack_anim_t = 0.35
-		_hero_swing()
+		_hero_swing(hero.position, hfwd)
 	if moving or threat:
 		hero.gather_target = null
 	else:
@@ -549,22 +555,51 @@ func _construct(pad: BuildPad3D) -> void:
 # ---------------------------------------------------------------------------
 # Combat / waves
 # ---------------------------------------------------------------------------
-# A directional melee swing: lands HERO_DMG on every live enemy within reach that
-# sits inside the frontal cone of wherever the hero is facing. Captures the facing
-# at swing start; damage applies after a short windup, only if the hit connects.
-func _hero_swing() -> void:
+# Unit forward vector from the hero's current facing (faces +Z at yaw 0).
+func _hero_forward() -> Vector3:
 	var yaw: float = hero.model.rotation.y
-	var fwd := Vector3(sin(yaw), 0, cos(yaw))
-	var origin := hero.position
-	get_tree().create_timer(0.2).timeout.connect(func():
+	return Vector3(sin(yaw), 0.0, cos(yaw))
+
+
+# True if an enemy's body circle (radius ENEMY_HIT_R) overlaps the cone defined by
+# apex `origin`, axis `fwd`, half-angle HERO_ARC and radius HERO_ATK_RANGE. This is
+# an exact circle-vs-(convex)-sector overlap test in the XZ plane.
+func _cone_overlaps(origin: Vector3, fwd: Vector3, c: Vector3) -> bool:
+	var rel := c - origin
+	rel.y = 0.0
+	var d := rel.length()
+	if d <= ENEMY_HIT_R:
+		return true                                  # right on top of the hero
+	var ang := acos(clampf(rel.dot(fwd) / d, -1.0, 1.0))
+	if ang <= HERO_ARC:
+		return d <= HERO_ATK_RANGE + ENEMY_HIT_R     # inside the wedge: just the radius
+	# outside the wedge angularly: distance to the nearer edge ray (segment 0..R)
+	var perp := Vector3(-fwd.z, 0.0, fwd.x)
+	var s := signf(rel.dot(perp))
+	if s == 0.0:
+		s = 1.0
+	var a := s * HERO_ARC
+	var edge := Vector3(fwd.x * cos(a) - fwd.z * sin(a), 0.0, fwd.x * sin(a) + fwd.z * cos(a))
+	var t := clampf(rel.dot(edge), 0.0, HERO_ATK_RANGE)
+	return rel.distance_to(edge * t) <= ENEMY_HIT_R
+
+
+func _enemy_in_cone(origin: Vector3, fwd: Vector3) -> bool:
+	for e in get_tree().get_nodes_in_group("enemies"):
+		var en := e as Enemy3D
+		if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
+			return true
+	return false
+
+
+# A directional melee swing. The cone (apex + facing) is committed at swing start;
+# after a short windup the hit lands on every live enemy still overlapping that
+# committed cone, so a target that leaves the zone in time is missed.
+func _hero_swing(origin: Vector3, fwd: Vector3) -> void:
+	get_tree().create_timer(HERO_WINDUP).timeout.connect(func():
 		for e in get_tree().get_nodes_in_group("enemies"):
 			var en := e as Enemy3D
-			if en.dead:
-				continue
-			var to: Vector3 = en.global_position - origin
-			to.y = 0.0
-			var d := to.length()
-			if d <= HERO_ATK_RANGE + 0.2 and d > 0.05 and fwd.angle_to(to / d) <= HERO_ARC:
+			if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
 				en.take_damage(HERO_DMG))
 
 
