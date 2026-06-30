@@ -485,9 +485,9 @@ func _popup(pos: Vector3, text: String, col: Color) -> void:
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
 	l.fixed_size = true
-	l.pixel_size = 0.0075
-	l.font_size = 64
-	l.outline_size = 12
+	l.pixel_size = 0.0016
+	l.font_size = 40
+	l.outline_size = 5
 	l.modulate = col
 	add_child(l)
 	var tw := create_tween()
