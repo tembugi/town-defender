@@ -21,6 +21,8 @@ const HEX_W := 2.0
 const HEX_V := 1.732
 const FIELD_COLS := 13
 const FIELD_ROWS := 11
+const GRID_OX := -(FIELD_COLS - 1) * HEX_W * 0.5
+const GRID_OZ := -(FIELD_ROWS - 1) * HEX_V * 0.5
 
 const HEX_GRASS := "res://Models/hexagon/tiles/base/hex_grass.gltf"
 const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
@@ -139,9 +141,10 @@ var btn_cancel: Button
 var build_mode := false
 var build_btype := ""
 var build_cost := 0
-var build_flip := 0.0          # extra yaw from the Flip button
-var ghost: Node3D              # translucent preview that floats in front of the hero
+var build_flip := 0.0          # yaw from the Flip button
+var ghost: Node3D              # translucent preview, dragged on the hex grid
 var ghost_mat: StandardMaterial3D
+var ghost_target := Vector3.ZERO   # snapped hex cell the ghost sits on
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
@@ -489,9 +492,11 @@ func _enter_build_mode(btype: String, cost: int) -> void:
 	build_btype = btype
 	build_cost = cost
 	build_flip = 0.0
+	ghost_target = _snap_to_hex(hero.position + _hero_forward() * 2.0)   # start near the hero
 	ghost = _make_ghost(btype)
 	add_child(ghost)
 	hero.cone.visible = false        # the ghost replaces the attack cone while building
+	joystick.visible = false         # free the touch surface for dragging the ghost
 	btn_place.visible = true
 	btn_flip.visible = true
 	btn_cancel.visible = true
@@ -503,6 +508,7 @@ func _exit_build_mode() -> void:
 		ghost.queue_free()
 	ghost = null
 	hero.cone.visible = true
+	joystick.visible = true
 	btn_build.visible = true
 	btn_place.visible = false
 	btn_flip.visible = false
@@ -510,20 +516,53 @@ func _exit_build_mode() -> void:
 
 
 func _confirm_place() -> void:
-	if _place_building(build_btype, build_cost, build_flip):
+	if _place_building(build_btype, build_cost, ghost_target, build_flip):
 		if gold < build_cost:
 			_exit_build_mode()   # can't afford another -> leave placement mode
+
+
+# Drag anywhere on the field (in build mode) to move the ghost; it snaps to a hex.
+func _unhandled_input(event: InputEvent) -> void:
+	if not build_mode:
+		return
+	var sp := Vector2.INF
+	if event is InputEventScreenDrag:
+		sp = (event as InputEventScreenDrag).position
+	elif event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed:
+		sp = (event as InputEventScreenTouch).position
+	elif event is InputEventMouseMotion and ((event as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT):
+		sp = (event as InputEventMouseMotion).position
+	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		sp = (event as InputEventMouseButton).position
+	if sp != Vector2.INF:
+		var g := _screen_to_ground(sp)
+		if g != Vector3.INF:
+			ghost_target = _snap_to_hex(g)
 
 
 func _update_ghost() -> void:
 	if ghost == null:
 		return
-	var pos: Vector3 = hero.position + _hero_forward() * 2.0
-	pos.y = 0.0
-	ghost.position = pos
-	ghost.rotation.y = hero.model.rotation.y + build_flip
-	var ok: bool = gold >= build_cost and _valid_build_spot(pos)
+	ghost.position = ghost_target
+	ghost.rotation.y = build_flip
+	var ok: bool = gold >= build_cost and _valid_build_spot(ghost_target)
 	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
+
+
+# Project a screen point onto the ground plane (y = 0).
+func _screen_to_ground(screen: Vector2) -> Vector3:
+	var from := cam.project_ray_origin(screen)
+	var dir := cam.project_ray_normal(screen)
+	if absf(dir.y) < 0.0001:
+		return Vector3.INF
+	return from + dir * (-from.y / dir.y)
+
+
+# Snap a world position to the nearest hex-cell centre (matches _build_world).
+func _snap_to_hex(p: Vector3) -> Vector3:
+	var r := clampi(roundi((p.z - GRID_OZ) / HEX_V), 0, FIELD_ROWS - 1)
+	var q := clampi(roundi((p.x - GRID_OX - 0.5 * (r & 1) * HEX_W) / HEX_W), 0, FIELD_COLS - 1)
+	return Vector3(HEX_W * (q + 0.5 * (r & 1)) + GRID_OX, 0.0, HEX_V * r + GRID_OZ)
 
 
 # A translucent green/red preview of a structure (no collider, no logic).
@@ -599,9 +638,10 @@ func _process(delta: float) -> void:
 			_gain_gold(rd.pick_up())
 			Sfx.play("coin", -4.0, 0.12, 3)
 	if build_mode:
-		# in placement mode the hero only positions the ghost (no combat/training)
-		_update_ghost()
+		# placement mode: hero stays put, you drag the ghost on the grid instead
+		hero.move_input = Vector2.ZERO
 		hero.gather_target = null
+		_update_ghost()
 	else:
 		# the swing is universal: works on the move, faces wherever the hero faces
 		# (no lock-on), acting on whatever is at least partly inside the cone --
@@ -824,20 +864,18 @@ func hire_worker() -> void:
 # ---------------------------------------------------------------------------
 # Free placement: drops the chosen structure just in front of the hero, oriented
 # to the hero's facing (so walls can run any direction), if the spot is clear.
-func _place_building(btype: String, cost: int, flip := 0.0) -> bool:
+func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0) -> bool:
 	_ensure_music()
 	if game_over or gold < cost:
 		return false
-	var pos: Vector3 = hero.position + _hero_forward() * 2.0
 	pos.y = 0.0
 	if not _valid_build_spot(pos):
-		_popup(hero.position + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
+		_popup(pos + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
 		Sfx.play("click", -6.0, 0.1, 2)
 		return false
 	gold -= cost
 	lbl_gold.text = "Gold: %d" % gold
 	Sfx.play("build", -3.0, 0.05, 3)
-	var yaw: float = hero.model.rotation.y + flip
 	match btype:
 		"tower":
 			var t := Tower3D.new()
