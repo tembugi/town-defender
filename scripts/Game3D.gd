@@ -22,6 +22,11 @@ const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
 
 const HIRE_COST := 25
 const GATHER_RANGE := 1.6
+const BUILD_RANGE := 1.8
+
+const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
+const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
+const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 
 var hero: Hero3D
 var cam: Camera3D
@@ -34,6 +39,10 @@ var gold := 100
 var worker_cap := 6
 var resource_nodes: Array[ResourceNode3D] = []
 var workers: Array[Worker3D] = []
+var build_pads: Array[BuildPad3D] = []
+var workshops := 0
+var barracks_count := 0
+var income_t := 0.0
 var lbl_gold: Label
 var lbl_pop: Label
 var btn_hire: Button
@@ -42,6 +51,7 @@ var btn_hire: Button
 func _ready() -> void:
 	_build_environment()
 	_build_world()
+	_build_pads()
 
 	hero = Hero3D.new()
 	hero.bounds = field_rect
@@ -218,12 +228,26 @@ func _process(delta: float) -> void:
 
 	# hero gathers the nearest node when standing still beside it
 	if v.length() < 0.05:
-		var node := nearest_resource(hero.position, GATHER_RANGE)
-		hero.gather_target = node
-		if node != null and node.work(delta):
-			_gain_gold(node.yield_amt)
+		# standing on a build pad takes priority over gathering
+		var pad := nearest_pad(hero.position, BUILD_RANGE)
+		if pad != null:
+			hero.gather_target = pad
+			if gold >= pad.cost and pad.advance(delta):
+				_construct(pad)
+		else:
+			var node := nearest_resource(hero.position, GATHER_RANGE)
+			hero.gather_target = node
+			if node != null and node.work(delta):
+				_gain_gold(node.yield_amt)
 	else:
 		hero.gather_target = null
+
+	# passive income from workshops/markets
+	if workshops > 0:
+		income_t -= delta
+		if income_t <= 0.0:
+			income_t = 3.0
+			_gain_gold(workshops * 3)
 
 	# smooth follow camera
 	var t := clampf(delta * 8.0, 0.0, 1.0)
@@ -267,3 +291,55 @@ func hire_worker() -> void:
 	w.setup(self)
 	workers.append(w)
 	lbl_pop.text = "Workers: %d/%d" % [workers.size(), worker_cap]
+
+
+# ---------------------------------------------------------------------------
+# Build system
+# ---------------------------------------------------------------------------
+func _build_pads() -> void:
+	var defs := [
+		{"type": "house", "cost": 20, "label": "House", "path": HOME, "pos": Vector3(-3.6, 0, 1.7)},
+		{"type": "workshop", "cost": 45, "label": "Market", "path": MARKET, "pos": Vector3(3.6, 0, 1.7)},
+		{"type": "barracks", "cost": 80, "label": "Barracks", "path": BARRACKS, "pos": Vector3(0, 0, -3.6)},
+	]
+	for d in defs:
+		var p := BuildPad3D.new()
+		p.position = d["pos"]
+		p.setup(self, d["type"], d["cost"], d["label"], d["path"])
+		add_child(p)
+		build_pads.append(p)
+
+
+func nearest_pad(from: Vector3, rng: float) -> BuildPad3D:
+	var best: BuildPad3D = null
+	var bestd := rng
+	for p in build_pads:
+		if p.built:
+			continue
+		var d := Vector2(p.position.x - from.x, p.position.z - from.z).length()
+		if d < bestd:
+			bestd = d
+			best = p
+	return best
+
+
+func _construct(pad: BuildPad3D) -> void:
+	if pad.built:
+		return
+	gold -= pad.cost
+	lbl_gold.text = "Gold: %d" % gold
+	pad.mark_built()
+	var b := (load(pad.building_path) as PackedScene).instantiate()
+	b.position = pad.position
+	add_child(b)
+	b.scale = Vector3.ONE * 0.3
+	var tw := create_tween()
+	tw.tween_property(b, "scale", Vector3.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	match pad.btype:
+		"house":
+			worker_cap += 2
+			lbl_pop.text = "Workers: %d/%d" % [workers.size(), worker_cap]
+		"workshop":
+			workshops += 1
+		"barracks":
+			barracks_count += 1
