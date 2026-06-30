@@ -128,7 +128,11 @@ static func obstacle(radius: float, height := 3.0) -> StaticBody3D:
 
 # --- Weapons -------------------------------------------------------------
 # KayKit characters ship unarmed but have a `handslot.r` bone for weapons.
-# We build simple low-poly weapons in code (grip at origin, blade along +Y).
+# The sword is a real model file (Models/weapons/sword.glb, editable in Blender);
+# the others are still built from primitives. tools/export_sword.gd regenerates
+# the sword glb from code if needed.
+const SWORD_MODEL := "res://Models/weapons/sword.glb"
+
 
 static func _box(size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
@@ -144,6 +148,9 @@ static func _box(size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
 
 
 static func make_weapon(kind := "sword") -> Node3D:
+	# the hero's sword is a model asset; load it (fall back to primitives if missing)
+	if kind == "sword" and ResourceLoader.exists(SWORD_MODEL):
+		return (load(SWORD_MODEL) as PackedScene).instantiate()
 	var w := Node3D.new()
 	var steel := Color(0.74, 0.78, 0.82)
 	var gold := Color(0.82, 0.66, 0.28)
