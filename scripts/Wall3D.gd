@@ -4,8 +4,10 @@ extends StaticBody3D
 # A destructible barrier. Blocks enemy movement (so it funnels them); enemies that
 # are stopped by it attack it until it's destroyed. Built on a wall build pad.
 
+# Modular wall: native width is exactly one hex (2.0), so at scale 1.0 adjacent
+# hex-snapped walls butt together into one continuous battlement.
 const MODEL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
-const SCALE := 1.15
+const SCALE := 1.0
 const MAX_HP := 180.0
 const BAR_W := 1.3
 
@@ -24,14 +26,15 @@ func setup(g: Node) -> void:
 	add_child(b)
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(1.7, 1.1, 0.65)
+	# full hex width so adjacent walls' colliders meet (no gap for enemies)
+	box.size = Vector3(2.0, 1.2, 0.7)
 	cs.shape = box
-	cs.position.y = 0.55
+	cs.position.y = 0.6
 	add_child(cs)
-	add_child(Rig.blob_shadow(0.85))
+	add_child(Rig.blob_shadow(0.9))
 	# HP bar
 	var hb := Node3D.new()
-	hb.position = Vector3(0, 1.35, 0)
+	hb.position = Vector3(0, 1.4, 0)
 	add_child(hb)
 	hb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))
 	bar_fill = Rig.bar_quad(Color(0.75, 0.7, 0.45, 1.0), BAR_W, 1)
