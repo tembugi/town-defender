@@ -18,6 +18,8 @@ const AGGRO_DECAY := 0.2    # aggro bleeds off per second when not being hit
 
 var aggro := 0.0            # builds when the hero hits us; over threshold -> chase hero
 var aggro_threshold := 0.5  # per-enemy (tougher foes need more before they turn)
+var ranged := false         # mage: stops at cast_range and lobs bolts
+var cast_range := 6.0
 
 signal died(reward: int, pos: Vector3)
 
@@ -51,6 +53,10 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	reward = cfg.get("reward", 5)
 	speed = cfg.get("speed", 1.6)
 	aggro_threshold = cfg.get("aggro_threshold", 0.5)
+	ranged = cfg.get("ranged", false)
+	cast_range = cfg.get("cast_range", 6.0)
+	if ranged:
+		atk_interval = 1.8
 	var char_path: String = cfg.get("model", CHAR)
 	var char_scale: float = cfg.get("scale", CHAR_SCALE)
 	model = (load(char_path) as PackedScene).instantiate()
@@ -99,7 +105,8 @@ func _physics_process(delta: float) -> void:
 	var target_pos: Vector3 = game.hero.global_position if aggroed else game.keep_pos
 	var to: Vector3 = target_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
-	var in_range: bool = dist <= (HERO_ATTACK_RANGE if aggroed else ATTACK_RANGE)
+	var melee_range: float = HERO_ATTACK_RANGE if aggroed else ATTACK_RANGE
+	var in_range: bool = dist <= (cast_range if ranged else melee_range)
 	if in_range:
 		# plant and attack; a packed crowd with nowhere to go stops dead, not jitters
 		velocity = Vector3.ZERO
@@ -121,27 +128,31 @@ func _physics_process(delta: float) -> void:
 	knockback = knockback.move_toward(Vector3.ZERO, KB_DECAY * delta)
 	velocity += knockback
 	move_and_slide()
-	# a wall directly in our path takes attack priority (chew through it)
-	var wall: Wall3D = game.nearest_blocking_wall(global_position, Vector3(to.x, 0, to.z).normalized())
+	# mages shoot over walls; melee enemies chew through a wall in their path
+	var wall: Wall3D = null
+	if not ranged:
+		wall = game.nearest_blocking_wall(global_position, Vector3(to.x, 0, to.z).normalized())
 	_face(wall.global_position if wall != null else target_pos)
 	# attack on cadence: blocking wall > primary target (hero if aggroed, else Keep)
 	var attacking: bool = wall != null or in_range
 	if attacking and atk_cd <= 0.0:
 		atk_cd = atk_interval
-		if wall != null:
+		if ranged:
+			game.cast_bolt(global_position + Vector3(0, 1.4, 0), aggroed, dmg)
+		elif wall != null:
 			wall.take_damage(dmg)
 		elif aggroed:
 			game.damage_hero(dmg)
 		else:
 			game.damage_keep(dmg)
-		anim = ""   # restart the swing clip on each strike
+		anim = ""   # restart the attack clip on each strike
 	# animation (a hit flinch briefly overrides everything else)
 	if hit_t > 0.0:
 		hit_t -= delta
 		_play(hit_clip)
 		ap.speed_scale = 1.0
 	elif attacking:
-		_play("Melee_1H_Attack_Chop")
+		_play("Throw" if ranged else "Melee_1H_Attack_Chop")
 		ap.speed_scale = 1.0
 	elif velocity.length() > 0.05:
 		_play("Walking_C")

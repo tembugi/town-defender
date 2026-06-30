@@ -31,6 +31,8 @@ const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 const TOWER := "res://Models/hexagon/buildings/blue/building_tower_A_blue.gltf"
 const WALL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
+const TOWER_COST := 70
+const WALL_COST := 25
 
 # the pack's buildings vary wildly in size; normalise them to proper buildings
 const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
@@ -53,9 +55,10 @@ const AUTO_WAVE_TIME := 15.0   # auto-launch the next wave if not started within
 # Enemy archetypes (base stats; scaled up per wave). aggro = how much hero damage
 # it takes to turn on the player (brutes largely ignore you and rush the Keep).
 const ENEMY_TYPES := {
-	"minion": {"model": "res://Models/enemies/Skeleton_Minion.glb", "scale": 0.55, "hp": 55.0, "speed": NPC_SPEED, "dmg": 6.0, "reward": 5, "aggro": 0.5},
+	"minion": {"model": "res://Models/enemies/Skeleton_Minion.glb", "scale": 0.55, "hp": 55.0, "speed": NPC_SPEED * 0.8, "dmg": 6.0, "reward": 5, "aggro": 0.5},
 	"runner": {"model": "res://Models/enemies/Skeleton_Rogue.glb", "scale": 0.52, "hp": 30.0, "speed": NPC_SPEED * 1.7, "dmg": 4.0, "reward": 6, "aggro": 0.5},
-	"brute": {"model": "res://Models/enemies/Skeleton_Warrior.glb", "scale": 0.64, "hp": 145.0, "speed": NPC_SPEED * 0.62, "dmg": 16.0, "reward": 14, "aggro": 3.0},
+	"brute": {"model": "res://Models/enemies/Skeleton_Warrior.glb", "scale": 0.64, "hp": 145.0, "speed": NPC_SPEED * 0.5, "dmg": 16.0, "reward": 14, "aggro": 3.0},
+	"mage": {"model": "res://Models/enemies/Skeleton_Mage.glb", "scale": 0.55, "hp": 42.0, "speed": NPC_SPEED * 0.7, "dmg": 11.0, "reward": 10, "aggro": 0.5, "ranged": true, "cast_range": 6.5},
 }
 
 var hero: Hero3D
@@ -114,6 +117,8 @@ var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
 var btn_wave: Button
+var btn_tower: Button
+var btn_wall: Button
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
@@ -328,6 +333,14 @@ func _build_touch_ui() -> void:
 	btn_wave.add_child(wave_cd_fill)
 	layer.add_child(btn_wave)
 
+	# free-placement build buttons (left side): place in front of the hero
+	btn_wall = _hud_button("WALL\n%dg" % WALL_COST, -160, Color(0.5, 0.5, 0.55), true)
+	btn_wall.pressed.connect(func(): _try_place("wall", WALL_COST))
+	layer.add_child(btn_wall)
+	btn_tower = _hud_button("ARROW\nTOWER\n%dg" % TOWER_COST, -160 - 130, Color(0.45, 0.55, 0.75), true)
+	btn_tower.pressed.connect(func(): _try_place("tower", TOWER_COST))
+	layer.add_child(btn_tower)
+
 	# end-of-game overlay
 	overlay = ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.72)
@@ -361,17 +374,23 @@ func _build_touch_ui() -> void:
 	overlay.add_child(btn_restart)
 
 
-func _hud_button(text: String, top_off: float, col: Color) -> Button:
+func _hud_button(text: String, top_off: float, col: Color, left := false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.add_theme_font_size_override("font_size", 24)
-	b.anchor_left = 1.0
 	b.anchor_top = 1.0
-	b.anchor_right = 1.0
 	b.anchor_bottom = 1.0
-	b.offset_left = -180
+	if left:
+		b.anchor_left = 0.0
+		b.anchor_right = 0.0
+		b.offset_left = 24
+		b.offset_right = 180
+	else:
+		b.anchor_left = 1.0
+		b.anchor_right = 1.0
+		b.offset_left = -180
+		b.offset_right = -24
 	b.offset_top = top_off
-	b.offset_right = -24
 	b.offset_bottom = top_off + 116
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(col.r, col.g, col.b, 0.9)
@@ -419,6 +438,10 @@ func _process(delta: float) -> void:
 	hero.move_input = Vector2(world.x, world.z)
 	if v.length() > 0.01:
 		_ensure_music()   # first user gesture -> safe to start audio on web
+	# dim build buttons we can't afford
+	btn_tower.disabled = gold < TOWER_COST
+	btn_wall.disabled = gold < WALL_COST
+	btn_hire.disabled = gold < HIRE_COST or workers.size() >= worker_cap
 
 	var moving := v.length() >= 0.05
 	# the player instantly collects any resource pile it walks over (no carrying)
@@ -652,14 +675,12 @@ func hire_worker() -> void:
 # Build system
 # ---------------------------------------------------------------------------
 func _build_pads() -> void:
+	# Towers and walls are placed freely (HUD buttons -> in front of the hero);
+	# only the town buildings live on fixed pads.
 	var defs := [
 		{"type": "house", "cost": 20, "label": "House", "path": HOME, "pos": Vector3(-3.6, 0, 1.7)},
 		{"type": "workshop", "cost": 45, "label": "Market", "path": MARKET, "pos": Vector3(3.6, 0, 1.7)},
 		{"type": "barracks", "cost": 80, "label": "Barracks", "path": BARRACKS, "pos": Vector3(0, 0, -3.6)},
-		{"type": "tower", "cost": 70, "label": "Arrow Tower", "path": TOWER, "pos": Vector3(-5.0, 0, -1.6)},
-		{"type": "tower", "cost": 70, "label": "Arrow Tower", "path": TOWER, "pos": Vector3(5.0, 0, -1.6)},
-		{"type": "wall", "cost": 25, "label": "Wall", "path": WALL, "pos": Vector3(-2.3, 0, -2.7)},
-		{"type": "wall", "cost": 25, "label": "Wall", "path": WALL, "pos": Vector3(2.3, 0, -2.7)},
 	]
 	for d in defs:
 		var p := BuildPad3D.new()
@@ -667,6 +688,54 @@ func _build_pads() -> void:
 		p.setup(self, d["type"], d["cost"], d["label"], d["path"])
 		add_child(p)
 		build_pads.append(p)
+
+
+# Free-placement: drop a tower/wall just in front of the hero if the spot is clear.
+func _try_place(btype: String, cost: int) -> void:
+	_ensure_music()
+	if game_over or gold < cost:
+		return
+	var pos: Vector3 = hero.position + _hero_forward() * 1.6
+	pos.y = 0.0
+	if not _valid_build_spot(pos):
+		_popup(hero.position + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
+		Sfx.play("click", -6.0, 0.1, 2)
+		return
+	gold -= cost
+	lbl_gold.text = "Gold: %d" % gold
+	Sfx.play("build", -3.0, 0.05, 3)
+	if btype == "tower":
+		var t := Tower3D.new()
+		t.position = pos
+		add_child(t)
+		t.setup(self)
+		towers.append(t)
+		_pop_in(t, 1.0)
+	else:
+		var w := Wall3D.new()
+		w.position = pos
+		add_child(w)
+		w.setup(self)
+		walls.append(w)
+		_pop_in(w, 1.0)
+
+
+func _valid_build_spot(pos: Vector3) -> bool:
+	var r := field_rect
+	if pos.x < r.position.x + 0.5 or pos.x > r.end.x - 0.5 or pos.z < r.position.y + 0.5 or pos.z > r.end.y - 0.5:
+		return false
+	if Vector2(pos.x, pos.z).length() < 2.4:   # keep clear of the Keep
+		return false
+	for p in build_pads:
+		if Vector2(pos.x - p.position.x, pos.z - p.position.z).length() < 1.8:
+			return false
+	for t in towers:
+		if is_instance_valid(t) and Vector2(pos.x - t.position.x, pos.z - t.position.z).length() < 1.6:
+			return false
+	for w in walls:
+		if is_instance_valid(w) and Vector2(pos.x - w.position.x, pos.z - w.position.z).length() < 1.6:
+			return false
+	return true
 
 
 func _pop_in(node: Node3D, target_scale: float) -> void:
@@ -770,6 +839,18 @@ func _construct(pad: BuildPad3D) -> void:
 # ---------------------------------------------------------------------------
 # Combat / waves
 # ---------------------------------------------------------------------------
+# A mage casts a bolt at the hero (if it's aggroed) or the Keep.
+func cast_bolt(origin: Vector3, aggroed: bool, dmg: float) -> void:
+	var b := EnemyBolt3D.new()
+	add_child(b)
+	b.global_position = origin
+	if aggroed and is_instance_valid(hero):
+		b.setup(self, hero.global_position + Vector3(0, 1.0, 0), "hero", dmg, hero)
+	else:
+		b.setup(self, keep_pos + Vector3(0, 1.5, 0), "keep", dmg, null)
+	Sfx.play("swing", -8.0, 0.2, 4)
+
+
 # Unit forward vector from the hero's current facing (faces +Z at yaw 0).
 func _hero_forward() -> Vector3:
 	var yaw: float = hero.model.rotation.y
@@ -910,10 +991,12 @@ func start_wave() -> void:
 	for n in range(count):
 		var roll := randf()
 		var t := "minion"
-		if wave >= 2 and roll < 0.30:
+		if wave >= 2 and roll < 0.28:
 			t = "runner"
-		elif wave >= 3 and roll > 0.82:
+		elif wave >= 3 and roll > 0.86:
 			t = "brute"
+		elif wave >= 4 and roll > 0.66 and roll < 0.80:
+			t = "mage"
 		spawn_list.append(_enemy_cfg(t, wave))
 	in_combat = true
 	wave_cd = WAVE_CD
@@ -923,7 +1006,7 @@ func start_wave() -> void:
 
 func _enemy_cfg(type: String, n: int) -> Dictionary:
 	var b: Dictionary = ENEMY_TYPES[type]
-	return {
+	var cfg := {
 		"model": b["model"],
 		"scale": b["scale"],
 		"hp": float(b["hp"]) * (1.0 + 0.16 * n),   # tankier each wave
@@ -932,6 +1015,10 @@ func _enemy_cfg(type: String, n: int) -> Dictionary:
 		"reward": int(b["reward"]) + n / 2,
 		"aggro_threshold": b["aggro"],
 	}
+	if b.get("ranged", false):
+		cfg["ranged"] = true
+		cfg["cast_range"] = b.get("cast_range", 6.0)
+	return cfg
 
 
 func _update_waves(delta: float) -> void:

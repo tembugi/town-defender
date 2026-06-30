@@ -34,7 +34,7 @@ func _process(delta: float) -> void:
 	var aim: Vector3 = target.global_position + Vector3(0, 1.0, 0)
 	var to := aim - global_position
 	var d := to.length()
-	if d <= 0.55:
+	if d <= maxf(0.55, SPEED * delta):   # arrived (overshoot-proof)
 		target.take_damage(dmg)   # no knockback/aggro: ranged tower fire
 		queue_free()
 		return
