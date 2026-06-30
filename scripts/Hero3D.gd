@@ -97,9 +97,8 @@ func _physics_process(delta: float) -> void:
 		_play("Interact")
 		ap.speed_scale = 1.4
 	elif gather_target != null and is_instance_valid(gather_target):
-		var d: Vector3 = gather_target.global_position - global_position
-		if Vector2(d.x, d.z).length() > 0.05:
-			model.rotation.y = atan2(d.x, d.z) + FACE_OFFSET
+		# building on a pad: swing in whatever direction we already face; don't
+		# snap to face the pad's centre
 		_play("Interact")
 		ap.speed_scale = 1.0
 	else:
