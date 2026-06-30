@@ -5,8 +5,11 @@ extends Node3D
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
-		hire_worker()
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_H:
+			hire_worker()
+		elif event.keycode == KEY_SPACE:
+			start_wave()
 
 const CAM_OFFSET := Vector3(0, 9.2, 5.6)   # steeper, more top-down "manage from above"
 const CAM_LOOK := Vector3(0, 0.6, 0)
@@ -28,6 +31,13 @@ const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
 const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 
+const HERO_ATK_RANGE := 2.6
+const HERO_DMG := 25.0
+const HERO_ATK_CD := 0.45
+const KEEP_MAX := 1500.0
+const TOTAL_WAVES := 8
+const SOLDIERS_PER_BARRACKS := 2
+
 var hero: Hero3D
 var cam: Camera3D
 var joystick: TouchJoystick
@@ -46,6 +56,24 @@ var income_t := 0.0
 var lbl_gold: Label
 var lbl_pop: Label
 var btn_hire: Button
+
+# combat / waves
+var keep_node: Node3D
+var keep_hp := KEEP_MAX
+var soldiers: Array[Soldier3D] = []
+var spawn_points: Array[Vector3] = []
+var wave := 0
+var wave_active := false
+var spawn_list: Array = []
+var spawn_t := 0.0
+var enemies_alive := 0
+var hero_atk_cd := 0.0
+var game_over := false
+var lbl_keep: Label
+var lbl_wave: Label
+var btn_wave: Button
+var overlay: ColorRect
+var lbl_end: Label
 
 
 func _ready() -> void:
@@ -119,8 +147,17 @@ func _build_world() -> void:
 	field_rect = Rect2(ox + 1.0, oz + 1.0, (FIELD_COLS - 1) * HEX_W - 2.0, (FIELD_ROWS - 1) * HEX_V - 2.0)
 
 	# central Keep
-	var castle := (load(CASTLE) as PackedScene).instantiate()
-	add_child(castle)
+	keep_node = (load(CASTLE) as PackedScene).instantiate()
+	add_child(keep_node)
+
+	# enemy spawn points at the field edges
+	var r := field_rect
+	spawn_points = [
+		Vector3(r.position.x + 0.5, 0, (r.position.y + r.end.y) * 0.5),
+		Vector3(r.end.x - 0.5, 0, (r.position.y + r.end.y) * 0.5),
+		Vector3((r.position.x + r.end.x) * 0.5, 0, r.position.y + 0.5),
+		Vector3((r.position.x + r.end.x) * 0.5, 0, r.end.y - 0.5),
+	]
 
 	# harvestable resource nodes, kept clear of the centre
 	for n in range(18):
@@ -172,27 +209,71 @@ func _build_touch_ui() -> void:
 
 	lbl_gold = _hud_label("Gold: %d" % gold, Vector2(22, 18), Color(1, 0.85, 0.25))
 	layer.add_child(lbl_gold)
-	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 52), Color(0.8, 1, 0.8))
+	lbl_keep = _hud_label("Keep: %d" % int(keep_hp), Vector2(22, 52), Color(0.7, 0.85, 1))
+	layer.add_child(lbl_keep)
+	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 86), Color(0.8, 1, 0.8))
 	layer.add_child(lbl_pop)
+	lbl_wave = _hud_label("Wave: 0/%d" % TOTAL_WAVES, Vector2(22, 120), Color(0.95, 0.7, 0.7))
+	layer.add_child(lbl_wave)
 
-	btn_hire = Button.new()
-	btn_hire.text = "HIRE\nWORKER\n%dg" % HIRE_COST
-	btn_hire.add_theme_font_size_override("font_size", 24)
-	btn_hire.anchor_left = 1.0
-	btn_hire.anchor_top = 1.0
-	btn_hire.anchor_right = 1.0
-	btn_hire.anchor_bottom = 1.0
-	btn_hire.offset_left = -180
-	btn_hire.offset_top = -160
-	btn_hire.offset_right = -24
-	btn_hire.offset_bottom = -44
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.45, 0.7, 0.45, 0.9)
-	sb.set_corner_radius_all(18)
-	btn_hire.add_theme_stylebox_override("normal", sb)
-	btn_hire.add_theme_stylebox_override("hover", sb)
+	btn_hire = _hud_button("HIRE\nWORKER\n%dg" % HIRE_COST, -160, Color(0.45, 0.7, 0.45))
 	btn_hire.pressed.connect(hire_worker)
 	layer.add_child(btn_hire)
+	btn_wave = _hud_button("START\nWAVE", -160 - 130, Color(0.8, 0.45, 0.4))
+	btn_wave.pressed.connect(start_wave)
+	layer.add_child(btn_wave)
+
+	# end-of-game overlay
+	overlay = ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.72)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.visible = false
+	layer.add_child(overlay)
+	lbl_end = Label.new()
+	lbl_end.anchor_left = 0.0
+	lbl_end.anchor_right = 1.0
+	lbl_end.anchor_top = 0.5
+	lbl_end.anchor_bottom = 0.5
+	lbl_end.offset_top = -120
+	lbl_end.offset_bottom = -20
+	lbl_end.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_end.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl_end.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl_end.add_theme_font_size_override("font_size", 44)
+	overlay.add_child(lbl_end)
+	var btn_restart := Button.new()
+	btn_restart.text = "Play Again"
+	btn_restart.anchor_left = 0.5
+	btn_restart.anchor_right = 0.5
+	btn_restart.anchor_top = 0.5
+	btn_restart.anchor_bottom = 0.5
+	btn_restart.offset_left = -110
+	btn_restart.offset_right = 110
+	btn_restart.offset_top = 30
+	btn_restart.offset_bottom = 94
+	btn_restart.add_theme_font_size_override("font_size", 24)
+	btn_restart.pressed.connect(func(): get_tree().reload_current_scene())
+	overlay.add_child(btn_restart)
+
+
+func _hud_button(text: String, top_off: float, col: Color) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_size_override("font_size", 24)
+	b.anchor_left = 1.0
+	b.anchor_top = 1.0
+	b.anchor_right = 1.0
+	b.anchor_bottom = 1.0
+	b.offset_left = -180
+	b.offset_top = top_off
+	b.offset_right = -24
+	b.offset_bottom = top_off + 116
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(col.r, col.g, col.b, 0.9)
+	sb.set_corner_radius_all(18)
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	return b
 
 
 func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
@@ -207,6 +288,9 @@ func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
 
 
 func _process(delta: float) -> void:
+	if game_over:
+		return
+	hero_atk_cd -= delta
 	# input: keyboard, else joystick
 	var v := Vector2.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP): v.y -= 1
@@ -226,19 +310,25 @@ func _process(delta: float) -> void:
 	var world := right * v.x + (-fwd) * (-v.y)   # -fwd = into screen/up; -v.y because up is negative
 	hero.move_input = Vector2(world.x, world.z)
 
-	# hero gathers the nearest node when standing still beside it
+	# when standing still: fight nearby enemy (priority) > build on pad > gather
 	if v.length() < 0.05:
-		# build only when on a pad you can afford (else fall through to gathering)
-		var pad := nearest_pad(hero.position, BUILD_RANGE)
-		if pad != null and gold >= pad.cost:
-			hero.gather_target = pad
-			if pad.advance(delta):
-				_construct(pad)
+		var enemy := nearest_enemy(hero.position, HERO_ATK_RANGE)
+		if enemy != null:
+			hero.gather_target = enemy
+			if hero_atk_cd <= 0.0:
+				hero_atk_cd = HERO_ATK_CD
+				enemy.take_damage(HERO_DMG)
 		else:
-			var node := nearest_resource(hero.position, GATHER_RANGE)
-			hero.gather_target = node
-			if node != null and node.work(delta):
-				_gain_gold(node.yield_amt)
+			var pad := nearest_pad(hero.position, BUILD_RANGE)
+			if pad != null and gold >= pad.cost:
+				hero.gather_target = pad
+				if pad.advance(delta):
+					_construct(pad)
+			else:
+				var node := nearest_resource(hero.position, GATHER_RANGE)
+				hero.gather_target = node
+				if node != null and node.work(delta):
+					_gain_gold(node.yield_amt)
 	else:
 		hero.gather_target = null
 
@@ -248,6 +338,8 @@ func _process(delta: float) -> void:
 		if income_t <= 0.0:
 			income_t = 3.0
 			_gain_gold(workshops * 3)
+
+	_update_waves(delta)
 
 	# smooth follow camera
 	var t := clampf(delta * 8.0, 0.0, 1.0)
@@ -343,3 +435,103 @@ func _construct(pad: BuildPad3D) -> void:
 			workshops += 1
 		"barracks":
 			barracks_count += 1
+			for s in range(SOLDIERS_PER_BARRACKS):
+				_spawn_soldier()
+
+
+# ---------------------------------------------------------------------------
+# Combat / waves
+# ---------------------------------------------------------------------------
+func nearest_enemy(from: Vector3, rng: float) -> Enemy3D:
+	var best: Enemy3D = null
+	var bestd := rng
+	for n in get_tree().get_nodes_in_group("enemies"):
+		var e := n as Enemy3D
+		if e == null or e.dead:
+			continue
+		var d := Vector2(e.global_position.x - from.x, e.global_position.z - from.z).length()
+		if d < bestd:
+			bestd = d
+			best = e
+	return best
+
+
+func damage_keep(amt: float) -> void:
+	if game_over:
+		return
+	keep_hp -= amt
+	lbl_keep.text = "Keep: %d" % maxi(0, int(keep_hp))
+	if keep_hp <= 0.0:
+		_end_game(false)
+
+
+func _spawn_soldier() -> void:
+	var ang := randf() * TAU
+	var gpos := keep_pos + Vector3(cos(ang), 0, sin(ang)) * 3.0
+	var s := Soldier3D.new()
+	s.position = gpos
+	add_child(s)
+	s.setup(self, gpos)
+	soldiers.append(s)
+
+
+func start_wave() -> void:
+	if wave_active or game_over or wave >= TOTAL_WAVES:
+		return
+	wave += 1
+	var count := 3 + wave * 2
+	spawn_list.clear()
+	for n in range(count):
+		spawn_list.append(_enemy_cfg(wave))
+	wave_active = true
+	spawn_t = 0.4
+	lbl_wave.text = "Wave: %d/%d" % [wave, TOTAL_WAVES]
+
+
+func _enemy_cfg(n: int) -> Dictionary:
+	return {
+		"hp": 35.0 + n * 10.0,
+		"speed": 1.5 + n * 0.06,
+		"reward": 5 + n,
+		"dmg": 5.0 + n * 0.8,
+	}
+
+
+func _update_waves(delta: float) -> void:
+	if not wave_active:
+		return
+	if not spawn_list.is_empty():
+		spawn_t -= delta
+		if spawn_t <= 0.0:
+			_spawn_enemy(spawn_list.pop_back(), spawn_points[randi() % spawn_points.size()])
+			spawn_t = maxf(0.4, 1.0 - wave * 0.05)
+	elif enemies_alive <= 0:
+		wave_active = false
+		_gain_gold(20 + wave * 8)
+		if wave >= TOTAL_WAVES:
+			_end_game(true)
+
+
+func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
+	var e := Enemy3D.new()
+	e.position = pos
+	add_child(e)
+	e.setup(self, cfg)
+	e.died.connect(_on_enemy_died)
+	enemies_alive += 1
+
+
+func _on_enemy_died(reward: int, _pos: Vector3) -> void:
+	enemies_alive -= 1
+	_gain_gold(reward)
+
+
+func _end_game(victory: bool) -> void:
+	game_over = true
+	overlay.visible = true
+	if victory:
+		lbl_end.text = "VICTORY! The town stands."
+		lbl_end.add_theme_color_override("font_color", Color(1, 0.9, 0.35))
+	else:
+		lbl_end.text = "DEFEAT! The Keep has fallen."
+		lbl_end.add_theme_color_override("font_color", Color(0.95, 0.4, 0.4))
