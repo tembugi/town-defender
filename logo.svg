@@ -1,0 +1,53 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5e8f48"/>
+      <stop offset="1" stop-color="#3c6330"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cdd2d6"/>
+      <stop offset="1" stop-color="#8b949b"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e9edf2"/>
+      <stop offset="1" stop-color="#aab3bd"/>
+    </linearGradient>
+  </defs>
+
+  <!-- crossed swords behind the shield -->
+  <g stroke="#7a5a2e" stroke-width="9" stroke-linecap="round">
+    <line x1="150" y1="392" x2="372" y2="150"/>
+    <line x1="362" y1="392" x2="140" y2="150"/>
+  </g>
+  <g fill="url(#blade)" stroke="#6c7682" stroke-width="3">
+    <polygon points="356,140 388,128 372,168"/>
+    <polygon points="156,140 124,128 140,168"/>
+  </g>
+  <g fill="#caa24a">
+    <rect x="332" y="372" width="52" height="14" rx="4" transform="rotate(-47 358 379)"/>
+    <rect x="128" y="372" width="52" height="14" rx="4" transform="rotate(47 154 379)"/>
+  </g>
+
+  <!-- heater shield -->
+  <path d="M256 44 L452 104 V300 C452 396 366 456 256 488 C146 456 60 396 60 300 V104 Z"
+        fill="url(#shield)" stroke="#caa24a" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M256 44 L452 104 V300 C452 396 366 456 256 488 C146 456 60 396 60 300 V104 Z"
+        fill="none" stroke="#2c4a24" stroke-width="3" stroke-linejoin="round" opacity="0.6"
+        transform="scale(0.92) translate(22 26)"/>
+
+  <!-- castle keep -->
+  <g fill="url(#stone)" stroke="#5d666e" stroke-width="3">
+    <!-- side towers -->
+    <rect x="150" y="232" width="48" height="150"/>
+    <rect x="314" y="232" width="48" height="150"/>
+    <!-- battlements on side towers -->
+    <rect x="150" y="216" width="14" height="20"/><rect x="184" y="216" width="14" height="20"/>
+    <rect x="314" y="216" width="14" height="20"/><rect x="348" y="216" width="14" height="20"/>
+    <!-- central keep -->
+    <rect x="204" y="196" width="104" height="186"/>
+    <rect x="204" y="178" width="20" height="24"/><rect x="246" y="178" width="20" height="24"/><rect x="288" y="178" width="20" height="24"/>
+  </g>
+  <!-- gate + windows -->
+  <path d="M236 382 V312 a20 20 0 0 1 40 0 V382 Z" fill="#4a3826"/>
+  <g fill="#3a2f22"><rect x="166" y="262" width="16" height="26" rx="3"/><rect x="330" y="262" width="16" height="26" rx="3"/><rect x="248" y="226" width="16" height="26" rx="3"/></g>
+</svg>
