@@ -45,6 +45,13 @@ jobs:
           godot --headless --export-release "Web" build/index.html
           ls -la build
 
+      - name: Inject version into loading screen
+        run: |
+          set -e
+          VERSION=$(grep -oP 'config/version="\K[^"]+' project.godot)
+          echo "Injecting version $VERSION"
+          sed -i "s/__GAME_VERSION__/${VERSION}/g" build/index.html
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
