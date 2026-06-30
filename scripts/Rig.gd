@@ -126,6 +126,65 @@ static func obstacle(radius: float, height := 3.0) -> StaticBody3D:
 	return sb
 
 
+# --- Weapons -------------------------------------------------------------
+# KayKit characters ship unarmed but have a `handslot.r` bone for weapons.
+# We build simple low-poly weapons in code (grip at origin, blade along +Y).
+
+static func _box(size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	m.mesh = b
+	m.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return m
+
+
+static func make_weapon(kind := "sword") -> Node3D:
+	var w := Node3D.new()
+	var steel := Color(0.74, 0.78, 0.82)
+	var gold := Color(0.82, 0.66, 0.28)
+	var wood := Color(0.45, 0.30, 0.17)
+	var bone := Color(0.86, 0.84, 0.74)
+	if kind == "axe":
+		w.add_child(_box(Vector3(0.05, 1.0, 0.05), Vector3(0, 0.4, 0), wood))        # haft
+		w.add_child(_box(Vector3(0.32, 0.34, 0.05), Vector3(0.08, 0.88, 0), steel))  # head
+	elif kind == "bonesword":
+		w.add_child(_box(Vector3(0.05, 0.24, 0.05), Vector3(0, 0.0, 0), bone))       # grip
+		w.add_child(_box(Vector3(0.20, 0.05, 0.05), Vector3(0, 0.14, 0), bone))      # guard
+		w.add_child(_box(Vector3(0.08, 0.66, 0.025), Vector3(0, 0.49, 0), bone))     # blade
+	else: # sword
+		w.add_child(_box(Vector3(0.05, 0.26, 0.05), Vector3(0, 0.0, 0), wood))       # grip
+		w.add_child(_box(Vector3(0.26, 0.05, 0.06), Vector3(0, 0.15, 0), gold))      # guard
+		w.add_child(_box(Vector3(0.07, 0.78, 0.025), Vector3(0, 0.56, 0), steel))    # blade
+		w.add_child(_box(Vector3(0.07, 0.07, 0.07), Vector3(0, -0.15, 0), gold))     # pommel
+	return w
+
+
+# Parent a weapon to a character's right-hand slot so it follows the animation.
+static func attach_weapon(model: Node, kind := "sword", bone := "handslot.r") -> void:
+	var sk := _find_skeleton(model)
+	if sk == null:
+		return
+	var ba := BoneAttachment3D.new()
+	ba.bone_name = bone
+	sk.add_child(ba)
+	ba.add_child(make_weapon(kind))
+
+
+static func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n
+	for c in n.get_children():
+		var r := _find_skeleton(c)
+		if r != null:
+			return r
+	return null
+
+
 # Recursively toggle shadow casting on all meshes (perf: small/many objects off).
 static func set_shadows(n: Node, on: bool) -> void:
 	if n is GeometryInstance3D:

@@ -35,6 +35,7 @@ func _ready() -> void:
 	Rig.make_unit_body(self)
 	_build_cone()
 	ap = Rig.attach(model)
+	Rig.attach_weapon(model, "sword")
 	_play("Idle_A")
 
 

@@ -46,6 +46,7 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	add_child(Rig.blob_shadow())
 	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "skeleton")
+	Rig.attach_weapon(model, "bonesword")
 	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
 	add_to_group("enemies")
 	_make_hpbar()
