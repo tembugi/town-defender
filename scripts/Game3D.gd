@@ -11,8 +11,10 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_SPACE:
 			start_wave()
 
-const CAM_OFFSET := Vector3(0, 9.2, 5.6)   # steeper, more top-down "manage from above"
-const CAM_LOOK := Vector3(0, 0.6, 0)
+# pulled back + ~48° tilt for a zoomed-out survival-defender view (front faces of
+# buildings visible, base + surroundings in frame). pitch = atan(y/z).
+const CAM_OFFSET := Vector3(0, 12.5, 11.0)
+const CAM_LOOK := Vector3(0, 0.5, 0)
 
 # pointy-top hex grid spacing (from measured tile: flat-width 2.0, 3/4 of point-height)
 const HEX_W := 2.0
