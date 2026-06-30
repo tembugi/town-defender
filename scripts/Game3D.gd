@@ -46,6 +46,15 @@ const TOTAL_WAVES := 8
 const WAVE_CD := 5.0          # seconds between launching waves (can stack waves)
 const SOLDIER_COST := 30
 const NPC_SPEED := 2.1   # ~50% of the player's max speed (4.2)
+const AUTO_WAVE_TIME := 15.0   # auto-launch the next wave if not started within this
+
+# Enemy archetypes (base stats; scaled up per wave). aggro = how much hero damage
+# it takes to turn on the player (brutes largely ignore you and rush the Keep).
+const ENEMY_TYPES := {
+	"minion": {"model": "res://Models/enemies/Skeleton_Minion.glb", "scale": 0.55, "hp": 55.0, "speed": NPC_SPEED, "dmg": 6.0, "reward": 5, "aggro": 0.5},
+	"runner": {"model": "res://Models/enemies/Skeleton_Rogue.glb", "scale": 0.52, "hp": 30.0, "speed": NPC_SPEED * 1.7, "dmg": 4.0, "reward": 6, "aggro": 0.5},
+	"brute": {"model": "res://Models/enemies/Skeleton_Warrior.glb", "scale": 0.64, "hp": 145.0, "speed": NPC_SPEED * 0.62, "dmg": 16.0, "reward": 14, "aggro": 3.0},
+}
 
 var hero: Hero3D
 var cam: Camera3D
@@ -80,6 +89,7 @@ var spawn_list: Array = []
 var spawn_t := 0.0
 var enemies_alive := 0
 var wave_cd := 0.0            # cooldown before the next wave can be launched
+var prep_t := AUTO_WAVE_TIME  # countdown to auto-launching the next wave
 var hero_atk_cd := 0.0
 var game_over := false
 var _music_started := false
@@ -846,21 +856,33 @@ func start_wave() -> void:
 	if spawn_list.is_empty():
 		spawn_t = 0.4
 	wave += 1
+	prep_t = AUTO_WAVE_TIME
+	# wave composition: runners join from wave 2, brutes from wave 3 (both rarer)
 	var count := 3 + wave * 2
 	for n in range(count):
-		spawn_list.append(_enemy_cfg(wave))
+		var roll := randf()
+		var t := "minion"
+		if wave >= 2 and roll < 0.30:
+			t = "runner"
+		elif wave >= 3 and roll > 0.82:
+			t = "brute"
+		spawn_list.append(_enemy_cfg(t, wave))
 	in_combat = true
 	wave_cd = WAVE_CD
 	lbl_wave.text = "Wave: %d/%d" % [wave, TOTAL_WAVES]
 	Sfx.play("wave", -3.0, 0.05, 1)
 
 
-func _enemy_cfg(n: int) -> Dictionary:
+func _enemy_cfg(type: String, n: int) -> Dictionary:
+	var b: Dictionary = ENEMY_TYPES[type]
 	return {
-		"hp": 55.0 + n * 14.0,     # several hits to kill (not one-shot)
-		"speed": NPC_SPEED,
-		"reward": 5 + n,
-		"dmg": 5.0 + n * 0.8,
+		"model": b["model"],
+		"scale": b["scale"],
+		"hp": float(b["hp"]) * (1.0 + 0.16 * n),   # tankier each wave
+		"speed": b["speed"],
+		"dmg": float(b["dmg"]) + n * 0.6,
+		"reward": int(b["reward"]) + n / 2,
+		"aggro_threshold": b["aggro"],
 	}
 
 
@@ -877,6 +899,13 @@ func _update_waves(delta: float) -> void:
 		_gain_gold(20 + wave * 8)
 		if wave >= TOTAL_WAVES:
 			_end_game(true)
+	# auto-launch the next wave if the player dawdles past the prep window
+	if not game_over and wave < TOTAL_WAVES and wave_cd <= 0.0:
+		prep_t -= delta
+		if prep_t <= 0.0:
+			start_wave()
+	else:
+		prep_t = AUTO_WAVE_TIME
 	_refresh_wave_btn()
 
 
@@ -884,12 +913,17 @@ func _refresh_wave_btn() -> void:
 	if game_over:
 		return
 	wave_cd_fill.anchor_right = clampf(wave_cd / WAVE_CD, 0.0, 1.0)
-	btn_wave.disabled = wave_cd > 0.0 or wave >= TOTAL_WAVES
+	var can_start := wave_cd <= 0.0 and wave < TOTAL_WAVES
+	btn_wave.disabled = not can_start
 	var remaining := spawn_list.size() + enemies_alive
-	if remaining > 0:
+	if can_start:
+		# enabled: show the auto-launch countdown (and current count if mid-siege)
+		var tail := "  (%d left)" % remaining if remaining > 0 else ""
+		btn_wave.text = "START WAVE\nauto %ds%s" % [int(ceil(prep_t)), tail]
+	elif remaining > 0:
 		btn_wave.text = "WAVE %d\n%d left" % [wave, remaining]
 	else:
-		btn_wave.text = "START\nWAVE"
+		btn_wave.text = "FINAL WAVE"
 
 
 func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:

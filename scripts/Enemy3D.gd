@@ -4,7 +4,7 @@ extends CharacterBody3D
 # A skeleton raider. Walks to the Keep and attacks it; has HP, dies with the
 # death animation, and rewards gold. Uses the skeleton's own Rig_Medium anims.
 
-const CHAR := "res://Models/enemies/Skeleton_Minion.glb"
+const CHAR := "res://Models/enemies/Skeleton_Minion.glb"   # default model
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
 const ATTACK_RANGE := 2.2        # vs the (large) Keep
@@ -51,8 +51,10 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	reward = cfg.get("reward", 5)
 	speed = cfg.get("speed", 1.6)
 	aggro_threshold = cfg.get("aggro_threshold", 0.5)
-	model = (load(CHAR) as PackedScene).instantiate()
-	model.scale = Vector3.ONE * CHAR_SCALE
+	var char_path: String = cfg.get("model", CHAR)
+	var char_scale: float = cfg.get("scale", CHAR_SCALE)
+	model = (load(char_path) as PackedScene).instantiate()
+	model.scale = Vector3.ONE * char_scale
 	add_child(model)
 	add_child(Rig.blob_shadow())
 	Rig.make_unit_body(self)
