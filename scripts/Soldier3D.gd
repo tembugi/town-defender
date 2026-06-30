@@ -42,7 +42,7 @@ func _physics_process(delta: float) -> void:
 		var to: Vector3 = e.global_position - global_position
 		if Vector2(to.x, to.z).length() <= REACH:
 			_face(e.global_position)
-			_play("Use_Item")
+			_play("Melee_1H_Attack_Chop")
 			ap.speed_scale = 1.0
 			if atk_cd <= 0.0:
 				atk_cd = ATK_CD

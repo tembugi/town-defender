@@ -112,7 +112,7 @@ func _physics_process(delta: float) -> void:
 		_play(hit_clip)
 		ap.speed_scale = 1.0
 	elif in_range:
-		_play("Use_Item")        # swing at the Keep
+		_play("Melee_1H_Attack_Chop")        # swing at the Keep
 		ap.speed_scale = 1.0
 	elif velocity.length() > 0.05:
 		_play("Walking_C")
@@ -158,7 +158,16 @@ func _die() -> void:
 	died.emit(reward, global_position)
 	_play("Death_A" if randf() < 0.5 else "Death_B")
 	ap.speed_scale = 1.0
-	get_tree().create_timer(1.6).timeout.connect(queue_free)
+	# the body stays on the ground; Game3D decides when to retire it
+	game.register_corpse(self)
+
+
+# Retire an old corpse: let it sink into the ground, then free it (no popping out).
+func sink_and_free() -> void:
+	var tw := create_tween()
+	tw.tween_interval(0.3)
+	tw.tween_property(self, "position:y", position.y - 2.0, 1.1).set_ease(Tween.EASE_IN)
+	tw.tween_callback(queue_free)
 
 
 func _face(p: Vector3) -> void:

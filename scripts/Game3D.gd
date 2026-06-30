@@ -719,6 +719,19 @@ func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
 	enemies_alive += 1
 
 
+const MAX_CORPSES := 10
+var corpses: Array = []   # dead bodies kept on the ground, retired oldest-first
+
+
+# Bodies pile up; once more than MAX_CORPSES exist, the oldest sinks away in order.
+func register_corpse(e: Node) -> void:
+	corpses.append(e)
+	while corpses.size() > MAX_CORPSES:
+		var old = corpses.pop_front()
+		if is_instance_valid(old):
+			old.sink_and_free()
+
+
 func _on_enemy_died(reward: int, _pos: Vector3) -> void:
 	enemies_alive -= 1
 	_gain_gold(reward)

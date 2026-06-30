@@ -9,10 +9,12 @@ const SETS := {
 	"adventurer": [
 		"res://Models/animations/Rig_Medium_General.glb",
 		"res://Models/animations/Rig_Medium_MovementBasic.glb",
+		"res://Models/animations/Rig_Medium_CombatMelee.glb",
 	],
 	"skeleton": [
 		"res://Models/enemies/animations/Rig_Medium_General.glb",
 		"res://Models/enemies/animations/Rig_Medium_MovementBasic.glb",
+		"res://Models/enemies/animations/Rig_Medium_CombatMelee.glb",
 	],
 }
 # clips that should loop (locomotion/idle/gather); everything else plays once
