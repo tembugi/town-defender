@@ -25,6 +25,7 @@ var atk_range := 1.6             # attack-cone radius (set by Game3D to match th
 var atk_arc := 0.785             # attack-cone half-angle
 var cone: MeshInstance3D         # the drawn attack cone on the ground
 var cone_mat: StandardMaterial3D
+var step_t := 0.0                # footstep cadence timer
 
 
 func _ready() -> void:
@@ -81,6 +82,11 @@ func _physics_process(delta: float) -> void:
 			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
 			position.z = clampf(position.z, bounds.position.y, bounds.end.y)
 		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
+		# footsteps, paced to walk vs run
+		step_t -= delta
+		if step_t <= 0.0:
+			step_t = 0.26 if spd >= RUN_THRESHOLD else 0.36
+			Sfx.play("step", -11.0, 0.14, 4)
 		# swing in our current facing while moving; otherwise normal locomotion
 		if swinging:
 			_play("Melee_1H_Attack_Chop")
@@ -93,6 +99,7 @@ func _physics_process(delta: float) -> void:
 			ap.speed_scale = clampf(spd / WALK_REF, 0.6, 1.8)
 		return
 	velocity = Vector3.ZERO
+	step_t = 0.0   # so the first step plays promptly when we move again
 	# standing still: swing keeps the last facing (no auto-aim onto enemies)
 	if swinging:
 		_play("Melee_1H_Attack_Chop")

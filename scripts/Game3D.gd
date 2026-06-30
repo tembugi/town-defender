@@ -82,6 +82,7 @@ var enemies_alive := 0
 var wave_cd := 0.0            # cooldown before the next wave can be launched
 var hero_atk_cd := 0.0
 var game_over := false
+var _music_started := false
 var shake_t := 0.0          # camera-shake time remaining
 var shake_amt := 0.0        # camera-shake amplitude
 var keep_fx_cd := 0.0       # throttle for keep-hit shake/flash during a siege
@@ -401,6 +402,8 @@ func _process(delta: float) -> void:
 	if right.length() > 0.001: right = right.normalized()
 	var world := right * v.x + (-fwd) * (-v.y)   # -fwd = into screen/up; -v.y because up is negative
 	hero.move_input = Vector2(world.x, world.z)
+	if v.length() > 0.01:
+		_ensure_music()   # first user gesture -> safe to start audio on web
 
 	var moving := v.length() >= 0.05
 	# the player instantly collects any resource pile it walks over (no carrying)
@@ -609,7 +612,14 @@ func worker_deposit(amt: int) -> void:
 	Sfx.play("coin", -6.0, 0.12, 3)
 
 
+func _ensure_music() -> void:
+	if not _music_started:
+		_music_started = true
+		Sfx.play_music()
+
+
 func hire_worker() -> void:
+	_ensure_music()
 	if workers.size() >= worker_cap or gold < HIRE_COST:
 		return
 	gold -= HIRE_COST
@@ -829,6 +839,7 @@ func _spawn_soldier(from: Vector3) -> void:
 
 
 func start_wave() -> void:
+	_ensure_music()
 	# waves can be stacked: launching one only requires the cooldown to be up
 	if game_over or wave_cd > 0.0 or wave >= TOTAL_WAVES:
 		return

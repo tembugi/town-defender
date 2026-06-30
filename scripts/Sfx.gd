@@ -8,11 +8,13 @@ extends Node
 const POOL := 14
 const NAMES := [
 	"swing", "hit", "enemy_death", "chop", "coin", "build", "hire",
-	"wave", "keep_hit", "hero_hurt", "victory", "defeat", "click",
+	"wave", "keep_hit", "hero_hurt", "victory", "defeat", "click", "step",
 ]
+const MUSIC_DB := -15.0
 
 var streams := {}
 var players: Array[AudioStreamPlayer] = []
+var music_player: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -24,6 +26,31 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		players.append(p)
+	# looping background music on its own player
+	music_player = AudioStreamPlayer.new()
+	music_player.volume_db = MUSIC_DB
+	add_child(music_player)
+	var mpath := "res://Audio/sfx/music.wav"
+	if ResourceLoader.exists(mpath):
+		var m := load(mpath)
+		if m is AudioStreamWAV:
+			# music is imported uncompressed (PCM), so bytes/2 == frame count (16-bit mono)
+			m.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			m.loop_begin = 0
+			m.loop_end = m.data.size() / 2
+		music_player.stream = m
+
+
+func play_music() -> void:
+	if music_player.stream != null and not music_player.playing:
+		music_player.play()
+
+
+func toggle_music(on: bool) -> void:
+	if on:
+		play_music()
+	else:
+		music_player.stop()
 
 
 func play(name: String, volume_db := 0.0, pitch_var := 0.1, max_concurrent := 4) -> void:
