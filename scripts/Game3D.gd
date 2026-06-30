@@ -36,8 +36,8 @@ const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
 const HERO_ATK_RANGE := 1.6
 const HERO_ARC := deg_to_rad(45.0)   # half-angle of the frontal cone the swing hits
-const HERO_DMG := 14.0
-const HERO_ATK_CD := 0.5
+const HERO_DMG := 20.0          # higher per-hit since swings are slower now
+const HERO_ATK_CD := 0.75       # slower, more deliberate swings (less "snap snap")
 const HERO_WINDUP := 0.22            # delay from swing start to the hit landing
 const ENEMY_HIT_R := 0.4             # enemy body radius for "at least partly in the cone"
 const HERO_PICKUP := 1.1             # the player grabs resource piles within this
@@ -717,19 +717,6 @@ func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
 	e.setup(self, cfg)
 	e.died.connect(_on_enemy_died)
 	enemies_alive += 1
-
-
-const MAX_CORPSES := 10
-var corpses: Array = []   # dead bodies kept on the ground, retired oldest-first
-
-
-# Bodies pile up; once more than MAX_CORPSES exist, the oldest sinks away in order.
-func register_corpse(e: Node) -> void:
-	corpses.append(e)
-	while corpses.size() > MAX_CORPSES:
-		var old = corpses.pop_front()
-		if is_instance_valid(old):
-			old.sink_and_free()
 
 
 func _on_enemy_died(reward: int, _pos: Vector3) -> void:

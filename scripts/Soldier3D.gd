@@ -31,7 +31,6 @@ func setup(g: Node, gpos: Vector3) -> void:
 	add_child(Rig.blob_shadow(0.42))
 	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "adventurer")
-	Rig.attach_weapon(model, "axe")
 	Rig.set_shadows(model, false)
 	_play("Idle_A")
 

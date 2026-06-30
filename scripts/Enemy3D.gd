@@ -11,6 +11,7 @@ const ATTACK_RANGE := 2.2
 const SEP_RADIUS := 1.4     # raiders push apart within this distance...
 const SEP_WEIGHT := 1.3     # ...strongly enough to flow around each other to open gaps
 const TANGENT_WEIGHT := 1.4 # sidestep force when a neighbour blocks the path to the Keep
+const CORPSE_LINGER := 10.0 # seconds a body lies on the ground before sinking away
 
 signal died(reward: int, pos: Vector3)
 
@@ -46,7 +47,6 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	add_child(Rig.blob_shadow())
 	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "skeleton")
-	Rig.attach_weapon(model, "bonesword")
 	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
 	add_to_group("enemies")
 	_make_hpbar()
@@ -159,11 +159,11 @@ func _die() -> void:
 	died.emit(reward, global_position)
 	_play("Death_A" if randf() < 0.5 else "Death_B")
 	ap.speed_scale = 1.0
-	# the body stays on the ground; Game3D decides when to retire it
-	game.register_corpse(self)
+	# body lies on the ground, then sinks away and frees itself after a delay
+	get_tree().create_timer(CORPSE_LINGER).timeout.connect(sink_and_free)
 
 
-# Retire an old corpse: let it sink into the ground, then free it (no popping out).
+# Sink into the ground, then free it (no popping out of existence).
 func sink_and_free() -> void:
 	var tw := create_tween()
 	tw.tween_interval(0.3)

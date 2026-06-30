@@ -83,8 +83,8 @@ func _physics_process(delta: float) -> void:
 		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
 		# swing in our current facing while moving; otherwise normal locomotion
 		if swinging:
-			_play("Melee_1H_Attack_Slice_Diagonal")
-			ap.speed_scale = 1.8
+			_play("Melee_1H_Attack_Chop")
+			ap.speed_scale = 1.1
 		elif spd >= RUN_THRESHOLD:
 			_play("Running_A")
 			ap.speed_scale = clampf(spd / RUN_REF, 0.6, 1.6)
@@ -95,8 +95,8 @@ func _physics_process(delta: float) -> void:
 	velocity = Vector3.ZERO
 	# standing still: swing keeps the last facing (no auto-aim onto enemies)
 	if swinging:
-		_play("Melee_1H_Attack_Slice_Diagonal")
-		ap.speed_scale = 1.8
+		_play("Melee_1H_Attack_Chop")
+		ap.speed_scale = 1.1
 	elif gather_target != null and is_instance_valid(gather_target):
 		# building on a pad: swing in whatever direction we already face; don't
 		# snap to face the pad's centre
@@ -108,7 +108,7 @@ func _physics_process(delta: float) -> void:
 
 
 func swing() -> void:
-	attack_anim_t = 0.35
+	attack_anim_t = 0.55
 	anim = ""   # restart the swing clip even if one is already playing
 
 
