@@ -7,7 +7,8 @@ extends Node3D
 
 const CHAR := "res://Models/characters/Rogue.glb"
 const CHAR_SCALE := 0.55
-const SPEED := 3.2
+const SPEED := 2.2               # slower than the player
+const WALK_REF := 1.5            # ground speed where Walking_C looks natural at scale 1
 const REACH := 1.4
 const DEPOSIT_REACH := 2.0
 
@@ -41,6 +42,7 @@ func _seek(delta: float) -> void:
 		target = game.nearest_resource(global_position)
 	if target == null:
 		_play("Idle_A")
+		ap.speed_scale = 1.0
 		return
 	var to: Vector3 = target.global_position - global_position
 	if Vector2(to.x, to.z).length() <= REACH:
@@ -55,6 +57,7 @@ func _harvest(delta: float) -> void:
 		return
 	_face(target.global_position)
 	_play("Interact")
+	ap.speed_scale = 1.0
 	if target.work(delta):
 		carry = target.yield_amt
 		target = null
@@ -79,6 +82,7 @@ func _move_toward(p: Vector3, delta: float) -> void:
 	global_position += dir * SPEED * delta
 	_face(p)
 	_play("Walking_C")
+	ap.speed_scale = SPEED / WALK_REF   # match feet to ground speed (no skating)
 
 
 func _face(p: Vector3) -> void:

@@ -20,12 +20,12 @@ var model: Node3D
 func setup(type: String) -> void:
 	ntype = type
 	if type == "rock":
-		work_time = 2.0
+		work_time = 4.5
 		yield_amt = 8
 		regrow_time = 12.0
 		model = (load(ROCK) as PackedScene).instantiate()
 	else:
-		work_time = 1.4
+		work_time = 3.0
 		yield_amt = 5
 		regrow_time = 10.0
 		model = (load(TREE) as PackedScene).instantiate()
