@@ -117,9 +117,11 @@ var game_over := false
 var _music_started := false
 var shake_t := 0.0          # camera-shake time remaining
 var shake_amt := 0.0        # camera-shake amplitude
-var keep_fx_cd := 0.0       # throttle for keep-hit shake/flash during a siege
-var hurt_flash: ColorRect   # red full-screen flash when the Keep is hit
+var keep_fx_cd := 0.0       # throttle for the keep-hit sound + bar pulse during a siege
 var hud_keep_fill: ColorRect   # Town Hall HP bar fill in the HUD
+var keep_bar_flash := 0.0      # white-flash timers for the health bars
+var hero_bar_flash := 0.0
+const KEEP3D_COLOR := Color(0.45, 0.8, 1.0)   # base colour of the floating keep bar
 const KEEP_HUD_W := 240.0
 const HERO_MAX_HP := 100.0
 const HERO_REGEN := 5.0        # hp/sec regen when not recently hit
@@ -298,12 +300,6 @@ func _find_mesh(n: Node) -> MeshInstance3D:
 func _build_touch_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
-	# red screen flash for when the Keep takes damage (sits behind the controls)
-	hurt_flash = ColorRect.new()
-	hurt_flash.color = Color(0.8, 0.0, 0.0, 0.0)
-	hurt_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(hurt_flash)
 	joystick = TouchJoystick.new()
 	layer.add_child(joystick)
 
@@ -687,10 +683,16 @@ func _process(delta: float) -> void:
 
 	_update_waves(delta)
 
-	# keep health bar (always visible, empties right to left)
+	# health-bar damage flashes decay over time
+	keep_bar_flash = maxf(0.0, keep_bar_flash - delta)
+	hero_bar_flash = maxf(0.0, hero_bar_flash - delta)
+	# keep health bar (always visible, empties right to left), flashing the fill
 	var kf := clampf(keep_hp / KEEP_MAX, 0.0, 1.0)
 	keep_bar_fill.scale.x = kf
 	keep_bar_fill.position.x = -KEEP_BAR_W * 0.5 * (1.0 - kf)
+	keep_bar_fill.material_override.albedo_color = Rig.flash_color(KEEP3D_COLOR, keep_bar_flash)
+	_update_keep_hud()
+	_update_hero_hud()
 
 	# smooth follow camera (+ decaying shake offset)
 	if keep_fx_cd > 0.0:
@@ -752,14 +754,16 @@ const SHAKE_DUR := 0.3
 func _update_keep_hud() -> void:
 	var f := clampf(keep_hp / KEEP_MAX, 0.0, 1.0)
 	hud_keep_fill.size.x = KEEP_HUD_W * f
-	hud_keep_fill.color = Color(0.85, 0.3, 0.3).lerp(Color(0.4, 0.85, 0.45), f)   # red when low
+	var base := Color(0.85, 0.3, 0.3).lerp(Color(0.4, 0.85, 0.45), f)   # red when low
+	hud_keep_fill.color = Rig.flash_color(base, keep_bar_flash)
 	lbl_keep.text = "Town Hall: %d / %d" % [maxi(0, int(keep_hp)), int(KEEP_MAX)]
 
 
 func _update_hero_hud() -> void:
 	var f := clampf(hero_hp / HERO_MAX_HP, 0.0, 1.0)
 	hud_hero_fill.size.x = KEEP_HUD_W * f
-	hud_hero_fill.color = Color(0.85, 0.3, 0.3).lerp(Color(0.45, 0.7, 0.95), f)   # red when low
+	var base := Color(0.85, 0.3, 0.3).lerp(Color(0.45, 0.7, 0.95), f)   # red when low
+	hud_hero_fill.color = Rig.flash_color(base, hero_bar_flash)
 	lbl_hero.text = "Hero: %d / %d" % [maxi(0, int(hero_hp)), int(HERO_MAX_HP)]
 
 
@@ -768,6 +772,7 @@ func damage_hero(amt: float) -> void:
 		return
 	hero_hp -= amt
 	hero_hit_cd = 2.5
+	hero_bar_flash = Rig.BAR_FLASH
 	_update_hero_hud()
 	Rig.flash(hero, hero.model, Color(1, 0.3, 0.3))
 	_camera_shake(0.08)
@@ -1106,14 +1111,13 @@ func damage_keep(amt: float) -> void:
 	if game_over:
 		return
 	keep_hp -= amt
-	_update_keep_hud()
-	# throttled subtle shake + faint red flash (kept gentle on purpose)
+	# feedback lives on the health bar, not the screen: pulse the bar (throttled so
+	# a heavy siege gives a steady pulse rather than a solid white bar) + a sound
 	if keep_fx_cd <= 0.0:
-		keep_fx_cd = 0.5
-		_camera_shake(0.05)
-		hurt_flash.color.a = 0.07
-		create_tween().tween_property(hurt_flash, "color:a", 0.0, 0.35)
+		keep_fx_cd = 0.4
+		keep_bar_flash = Rig.BAR_FLASH
 		Sfx.play("keep_hit", -4.0, 0.1, 2)
+	_update_keep_hud()
 	if keep_hp <= 0.0:
 		_end_game(false)
 

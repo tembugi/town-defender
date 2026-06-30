@@ -11,10 +11,13 @@ const SCALE := 1.74           # 1.15 * 1.74 ~= 2.0 (one hex)
 const MAX_HP := 140.0
 const BAR_W := 1.3
 
+const BAR_COLOR := Color(0.75, 0.7, 0.45, 1.0)
+
 var game: Node
 var hp := MAX_HP
 var dead := false
 var bar_fill: MeshInstance3D
+var bar_flash := 0.0
 
 
 func setup(g: Node) -> void:
@@ -39,15 +42,23 @@ func setup(g: Node) -> void:
 	hb.position = Vector3(0, 0.95, 0)
 	add_child(hb)
 	hb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))
-	bar_fill = Rig.bar_quad(Color(0.75, 0.7, 0.45, 1.0), BAR_W, 1)
+	bar_fill = Rig.bar_quad(BAR_COLOR, BAR_W, 1)
 	bar_fill.position.z = 0.01
 	hb.add_child(bar_fill)
+
+
+func _process(delta: float) -> void:
+	if bar_flash <= 0.0:
+		return
+	bar_flash = maxf(0.0, bar_flash - delta)
+	bar_fill.material_override.albedo_color = Rig.flash_color(BAR_COLOR, bar_flash)
 
 
 func take_damage(amount: float) -> void:
 	if dead:
 		return
 	hp -= amount
+	bar_flash = Rig.BAR_FLASH
 	var frac := clampf(hp / MAX_HP, 0.0, 1.0)
 	bar_fill.scale.x = frac
 	bar_fill.position.x = -BAR_W * 0.5 * (1.0 - frac)

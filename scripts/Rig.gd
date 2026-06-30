@@ -72,6 +72,14 @@ static func bar_quad(col: Color, width := 0.9, priority := 0) -> MeshInstance3D:
 	return m
 
 
+# Uniform "took damage" flash for any health bar: blend its colour toward white
+# for BAR_FLASH seconds. Callers keep a timer, count it down, and feed it here.
+const BAR_FLASH := 0.18
+
+static func flash_color(base: Color, t: float) -> Color:
+	return base.lerp(Color.WHITE, clampf(t / BAR_FLASH, 0.0, 1.0))
+
+
 # A flat translucent disc used as a fake shadow under characters.
 static func blob_shadow(radius := 0.38) -> MeshInstance3D:
 	var m := MeshInstance3D.new()

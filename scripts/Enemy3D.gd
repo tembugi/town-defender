@@ -75,13 +75,15 @@ func setup(g: Node, cfg: Dictionary) -> void:
 
 
 const BAR_W := 0.9
+const BAR_COLOR := Color(0.3, 0.9, 0.3, 1.0)
+var bar_flash := 0.0
 
 func _make_hpbar() -> void:
 	hpbar = Node3D.new()
 	hpbar.position = Vector3(0, 1.6, 0)
 	add_child(hpbar)
 	hpbar.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))   # background
-	bar_fill = Rig.bar_quad(Color(0.3, 0.9, 0.3, 1.0), BAR_W, 1)   # always on top
+	bar_fill = Rig.bar_quad(BAR_COLOR, BAR_W, 1)   # always on top
 	bar_fill.position.z = 0.01
 	hpbar.add_child(bar_fill)
 
@@ -92,6 +94,8 @@ func _physics_process(delta: float) -> void:
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
 	bar_fill.scale.x = frac
 	bar_fill.position.x = -BAR_W * 0.5 * (1.0 - frac)   # anchor left -> empties right to left
+	bar_flash = maxf(0.0, bar_flash - delta)
+	bar_fill.material_override.albedo_color = Rig.flash_color(BAR_COLOR, bar_flash)
 	# spawning: stand still and finish rising out of the ground
 	if spawn_t > 0.0:
 		spawn_t -= delta
@@ -206,6 +210,7 @@ func take_damage(amount: float, from := Vector3.INF) -> void:
 	if dead:
 		return
 	hp -= amount
+	bar_flash = Rig.BAR_FLASH
 	Rig.flash(self, model, Color(1, 0.35, 0.35))   # red hit flash
 	if from.is_finite():
 		var dir: Vector3 = global_position - from
