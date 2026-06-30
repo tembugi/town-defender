@@ -40,6 +40,7 @@ const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
 const KEEP_MAX := 1500.0
 const TOTAL_WAVES := 8
+const WAVE_CD := 5.0          # seconds between launching waves (can stack waves)
 const SOLDIER_COST := 30
 const NPC_SPEED := 2.1   # ~50% of the player's max speed (4.2)
 
@@ -71,16 +72,18 @@ const KEEP_BAR_W := 1.8
 var soldiers: Array[Soldier3D] = []
 var spawn_points: Array[Vector3] = []
 var wave := 0
-var wave_active := false
+var in_combat := false        # enemies still pending to spawn or alive
 var spawn_list: Array = []
 var spawn_t := 0.0
 var enemies_alive := 0
+var wave_cd := 0.0            # cooldown before the next wave can be launched
 var hero_atk_cd := 0.0
 var game_over := false
 var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
 var btn_wave: Button
+var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
 
@@ -89,8 +92,8 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		get_viewport().scaling_3d_scale = 0.75   # render 3D at 75% on mobile/web -> big GPU win
 	_build_environment()
+	_build_pads()    # before _build_world so resources avoid building plots
 	_build_world()
-	_build_pads()
 
 	hero = Hero3D.new()
 	hero.bounds = field_rect
@@ -181,16 +184,22 @@ func _build_world() -> void:
 		Vector3((r.position.x + r.end.x) * 0.5, 0, r.end.y - 0.5),
 	]
 
-	# harvestable resource nodes, kept clear of the centre
-	for n in range(18):
+	# harvestable resource nodes, kept clear of the centre and the building plots
+	var placed := 0
+	var tries := 0
+	while placed < 18 and tries < 300:
+		tries += 1
 		var p := Vector3(randf_range(field_rect.position.x, field_rect.end.x), 0, randf_range(field_rect.position.y, field_rect.end.y))
 		if Vector2(p.x, p.z).length() < 3.5:
+			continue
+		if _too_close_to_pad(p, 2.4):
 			continue
 		var node := ResourceNode3D.new()
 		node.position = p
 		add_child(node)
 		node.setup("rock" if randf() < 0.32 else "tree")
 		resource_nodes.append(node)
+		placed += 1
 
 
 func _mesh_of(path: String) -> Mesh:
@@ -245,6 +254,13 @@ func _build_touch_ui() -> void:
 	layer.add_child(btn_hire)
 	btn_wave = _hud_button("START\nWAVE", -160 - 130, Color(0.8, 0.45, 0.4))
 	btn_wave.pressed.connect(start_wave)
+	btn_wave.clip_contents = true
+	wave_cd_fill = ColorRect.new()
+	wave_cd_fill.color = Color(0, 0, 0, 0.45)
+	wave_cd_fill.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wave_cd_fill.anchor_right = 0.0   # hidden until a cooldown is running
+	wave_cd_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn_wave.add_child(wave_cd_fill)
 	layer.add_child(btn_wave)
 
 	# end-of-game overlay
@@ -297,6 +313,9 @@ func _hud_button(text: String, top_off: float, col: Color) -> Button:
 	sb.set_corner_radius_all(18)
 	b.add_theme_stylebox_override("normal", sb)
 	b.add_theme_stylebox_override("hover", sb)
+	var sbd := sb.duplicate() as StyleBoxFlat
+	sbd.bg_color = Color(col.r * 0.5, col.g * 0.5, col.b * 0.5, 0.9)
+	b.add_theme_stylebox_override("disabled", sbd)
 	return b
 
 
@@ -440,6 +459,13 @@ func _build_pads() -> void:
 		build_pads.append(p)
 
 
+func _too_close_to_pad(p: Vector3, clearance: float) -> bool:
+	for pad in build_pads:
+		if Vector2(p.x - pad.position.x, p.z - pad.position.z).length() < clearance:
+			return true
+	return false
+
+
 func nearest_pad(from: Vector3, rng: float) -> BuildPad3D:
 	var best: BuildPad3D = null
 	var bestd := rng
@@ -543,15 +569,17 @@ func _spawn_soldier(from: Vector3) -> void:
 
 
 func start_wave() -> void:
-	if wave_active or game_over or wave >= TOTAL_WAVES:
+	# waves can be stacked: launching one only requires the cooldown to be up
+	if game_over or wave_cd > 0.0 or wave >= TOTAL_WAVES:
 		return
+	if spawn_list.is_empty():
+		spawn_t = 0.4
 	wave += 1
 	var count := 3 + wave * 2
-	spawn_list.clear()
 	for n in range(count):
 		spawn_list.append(_enemy_cfg(wave))
-	wave_active = true
-	spawn_t = 0.4
+	in_combat = true
+	wave_cd = WAVE_CD
 	lbl_wave.text = "Wave: %d/%d" % [wave, TOTAL_WAVES]
 
 
@@ -565,18 +593,31 @@ func _enemy_cfg(n: int) -> Dictionary:
 
 
 func _update_waves(delta: float) -> void:
-	if not wave_active:
-		return
+	if wave_cd > 0.0:
+		wave_cd = maxf(0.0, wave_cd - delta)
 	if not spawn_list.is_empty():
 		spawn_t -= delta
 		if spawn_t <= 0.0:
 			_spawn_enemy(spawn_list.pop_back(), spawn_points[randi() % spawn_points.size()])
 			spawn_t = maxf(0.4, 1.0 - wave * 0.05)
-	elif enemies_alive <= 0:
-		wave_active = false
+	elif enemies_alive <= 0 and in_combat:
+		in_combat = false
 		_gain_gold(20 + wave * 8)
 		if wave >= TOTAL_WAVES:
 			_end_game(true)
+	_refresh_wave_btn()
+
+
+func _refresh_wave_btn() -> void:
+	if game_over:
+		return
+	wave_cd_fill.anchor_right = clampf(wave_cd / WAVE_CD, 0.0, 1.0)
+	btn_wave.disabled = wave_cd > 0.0 or wave >= TOTAL_WAVES
+	var remaining := spawn_list.size() + enemies_alive
+	if remaining > 0:
+		btn_wave.text = "WAVE %d\n%d left" % [wave, remaining]
+	else:
+		btn_wave.text = "START\nWAVE"
 
 
 func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
