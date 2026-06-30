@@ -19,6 +19,7 @@ var ap: AnimationPlayer
 var anim := ""
 var move_input := Vector2.ZERO   # x = world X, y = world Z (set by Game3D)
 var bounds := Rect2()            # XZ play area; clamp position when set
+var gather_target: Node3D = null # when set and not moving, play the gather anim facing it
 
 
 func _ready() -> void:
@@ -47,6 +48,12 @@ func _process(delta: float) -> void:
 		else:
 			_play("Walking_C")
 			ap.speed_scale = clampf(spd / WALK_REF, 0.6, 1.8)
+	elif gather_target != null and is_instance_valid(gather_target):
+		var d: Vector3 = gather_target.global_position - global_position
+		if Vector2(d.x, d.z).length() > 0.05:
+			model.rotation.y = atan2(d.x, d.z) + FACE_OFFSET
+		_play("Interact")
+		ap.speed_scale = 1.0
 	else:
 		_play("Idle_A")
 		ap.speed_scale = 1.0

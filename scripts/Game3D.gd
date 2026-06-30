@@ -1,7 +1,12 @@
 extends Node3D
 
-# 3D rebuild - Chunk 1: a hero on a ground plane, a fixed tilted follow-camera,
-# and joystick/WASD movement. Foundation for the 3D town-defender.
+# 3D rebuild - hero + hex world + economy. Hero gathers nearby trees/rocks;
+# hire workers (button / H) that auto-gather and carry gold to the Keep.
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
+		hire_worker()
 
 const CAM_OFFSET := Vector3(0, 9.2, 5.6)   # steeper, more top-down "manage from above"
 const CAM_LOOK := Vector3(0, 0.6, 0)
@@ -14,13 +19,24 @@ const FIELD_ROWS := 11
 
 const HEX_GRASS := "res://Models/hexagon/tiles/base/hex_grass.gltf"
 const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
-const TREE := "res://Models/hexagon/decoration/nature/tree_single_A.gltf"
-const ROCK := "res://Models/hexagon/decoration/nature/rock_single_B.gltf"
+
+const HIRE_COST := 25
+const GATHER_RANGE := 1.6
 
 var hero: Hero3D
 var cam: Camera3D
 var joystick: TouchJoystick
 var field_rect := Rect2()
+
+# economy
+var keep_pos := Vector3.ZERO
+var gold := 100
+var worker_cap := 6
+var resource_nodes: Array[ResourceNode3D] = []
+var workers: Array[Worker3D] = []
+var lbl_gold: Label
+var lbl_pop: Label
+var btn_hire: Button
 
 
 func _ready() -> void:
@@ -96,17 +112,16 @@ func _build_world() -> void:
 	var castle := (load(CASTLE) as PackedScene).instantiate()
 	add_child(castle)
 
-	# scatter decoration, kept clear of the centre
-	for n in range(16):
+	# harvestable resource nodes, kept clear of the centre
+	for n in range(18):
 		var p := Vector3(randf_range(field_rect.position.x, field_rect.end.x), 0, randf_range(field_rect.position.y, field_rect.end.y))
-		if Vector2(p.x, p.z).length() < 3.0:
+		if Vector2(p.x, p.z).length() < 3.5:
 			continue
-		var is_tree := randf() < 0.65
-		var deco := (load(TREE if is_tree else ROCK) as PackedScene).instantiate()
-		deco.position = p
-		deco.rotation.y = randf() * TAU
-		deco.scale = Vector3.ONE * (1.5 if is_tree else 1.5)
-		add_child(deco)
+		var node := ResourceNode3D.new()
+		node.position = p
+		add_child(node)
+		node.setup("rock" if randf() < 0.32 else "tree")
+		resource_nodes.append(node)
 
 
 func _mesh_of(path: String) -> Mesh:
@@ -145,6 +160,41 @@ func _build_touch_ui() -> void:
 	joystick = TouchJoystick.new()
 	layer.add_child(joystick)
 
+	lbl_gold = _hud_label("Gold: %d" % gold, Vector2(22, 18), Color(1, 0.85, 0.25))
+	layer.add_child(lbl_gold)
+	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 52), Color(0.8, 1, 0.8))
+	layer.add_child(lbl_pop)
+
+	btn_hire = Button.new()
+	btn_hire.text = "HIRE\nWORKER\n%dg" % HIRE_COST
+	btn_hire.add_theme_font_size_override("font_size", 24)
+	btn_hire.anchor_left = 1.0
+	btn_hire.anchor_top = 1.0
+	btn_hire.anchor_right = 1.0
+	btn_hire.anchor_bottom = 1.0
+	btn_hire.offset_left = -180
+	btn_hire.offset_top = -160
+	btn_hire.offset_right = -24
+	btn_hire.offset_bottom = -44
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.45, 0.7, 0.45, 0.9)
+	sb.set_corner_radius_all(18)
+	btn_hire.add_theme_stylebox_override("normal", sb)
+	btn_hire.add_theme_stylebox_override("hover", sb)
+	btn_hire.pressed.connect(hire_worker)
+	layer.add_child(btn_hire)
+
+
+func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.position = pos
+	l.add_theme_font_size_override("font_size", 26)
+	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	l.add_theme_constant_override("outline_size", 5)
+	return l
+
 
 func _process(delta: float) -> void:
 	# input: keyboard, else joystick
@@ -166,7 +216,54 @@ func _process(delta: float) -> void:
 	var world := right * v.x + (-fwd) * (-v.y)   # -fwd = into screen/up; -v.y because up is negative
 	hero.move_input = Vector2(world.x, world.z)
 
+	# hero gathers the nearest node when standing still beside it
+	if v.length() < 0.05:
+		var node := nearest_resource(hero.position, GATHER_RANGE)
+		hero.gather_target = node
+		if node != null and node.work(delta):
+			_gain_gold(node.yield_amt)
+	else:
+		hero.gather_target = null
+
 	# smooth follow camera
 	var t := clampf(delta * 8.0, 0.0, 1.0)
 	cam.position = cam.position.lerp(hero.position + CAM_OFFSET, t)
 	cam.look_at(hero.position + CAM_LOOK, Vector3.UP)
+
+
+# ---------------------------------------------------------------------------
+# Economy
+# ---------------------------------------------------------------------------
+func nearest_resource(from: Vector3, max_range := INF) -> ResourceNode3D:
+	var best: ResourceNode3D = null
+	var bestd := max_range
+	for n in resource_nodes:
+		if n.depleted:
+			continue
+		var d := Vector2(n.global_position.x - from.x, n.global_position.z - from.z).length()
+		if d < bestd:
+			bestd = d
+			best = n
+	return best
+
+
+func _gain_gold(amt: int) -> void:
+	gold += amt
+	lbl_gold.text = "Gold: %d" % gold
+
+
+func worker_deposit(amt: int) -> void:
+	_gain_gold(amt)
+
+
+func hire_worker() -> void:
+	if workers.size() >= worker_cap or gold < HIRE_COST:
+		return
+	gold -= HIRE_COST
+	lbl_gold.text = "Gold: %d" % gold
+	var w := Worker3D.new()
+	w.position = keep_pos + Vector3(randf_range(-1.5, 1.5), 0, 2.0)
+	add_child(w)
+	w.setup(self)
+	workers.append(w)
+	lbl_pop.text = "Workers: %d/%d" % [workers.size(), worker_cap]

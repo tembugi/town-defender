@@ -9,7 +9,7 @@ extends RefCounted
 const GENERAL := "res://Models/animations/Rig_Medium_General.glb"
 const MOVEMENT := "res://Models/animations/Rig_Medium_MovementBasic.glb"
 # clips that should loop (locomotion/idle); everything else plays once
-const LOOPING := ["Idle_A", "Idle_B", "Walking_A", "Walking_B", "Walking_C", "Running_A", "Running_B"]
+const LOOPING := ["Idle_A", "Idle_B", "Walking_A", "Walking_B", "Walking_C", "Running_A", "Running_B", "Interact"]
 
 static var _lib: AnimationLibrary = null
 
