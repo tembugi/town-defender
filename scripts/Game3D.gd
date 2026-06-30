@@ -37,8 +37,8 @@ const TOWER_COST := 70
 const WALL_COST := 25
 
 # the pack's buildings vary wildly in size; normalise them to proper buildings
-const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
-const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
+const BUILDING_SCALE := {"house": 2.0, "workshop": 1.4, "barracks": 1.4}
+const BUILDING_BLOB := {"house": 1.0, "workshop": 1.2, "barracks": 1.1}
 
 const HERO_ATK_RANGE := 1.6
 const HERO_ARC := deg_to_rad(45.0)   # half-angle of the frontal cone the swing hits
@@ -78,6 +78,16 @@ var workers: Array[Worker3D] = []
 var build_pads: Array[BuildPad3D] = []
 var towers: Array = []
 var walls: Array[Wall3D] = []
+var buildings: Array = []   # freely-placed house/market/barracks (for overlap checks)
+
+# everything buildable from the menu: label, type, cost
+const BUILDABLES := [
+	{"t": "wall", "c": 25, "l": "Wall"},
+	{"t": "tower", "c": 70, "l": "Tower"},
+	{"t": "house", "c": 20, "l": "House"},
+	{"t": "workshop", "c": 45, "l": "Market"},
+	{"t": "barracks", "c": 80, "l": "Barracks"},
+]
 const WALL_BLOCK_RANGE := 1.6   # how close a raider must be to a wall to attack it
 var workshops := 0
 var barracks_count := 0
@@ -119,8 +129,9 @@ var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
 var btn_wave: Button
-var btn_tower: Button
-var btn_wall: Button
+var btn_build: Button          # toggles the build menu
+var build_menu: Array[Button] = []
+var build_menu_open := false
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
@@ -130,7 +141,6 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		get_viewport().scaling_3d_scale = 0.75   # render 3D at 75% on mobile/web -> big GPU win
 	_build_environment()
-	_build_pads()    # before _build_world so resources avoid building plots
 	_build_world()
 
 	hero = Hero3D.new()
@@ -335,13 +345,21 @@ func _build_touch_ui() -> void:
 	btn_wave.add_child(wave_cd_fill)
 	layer.add_child(btn_wave)
 
-	# free-placement build buttons (left side): place in front of the hero
-	btn_wall = _hud_button("WALL\n%dg" % WALL_COST, -160, Color(0.5, 0.5, 0.55), true)
-	btn_wall.pressed.connect(func(): _try_place("wall", WALL_COST))
-	layer.add_child(btn_wall)
-	btn_tower = _hud_button("ARROW\nTOWER\n%dg" % TOWER_COST, -160 - 130, Color(0.45, 0.55, 0.75), true)
-	btn_tower.pressed.connect(func(): _try_place("tower", TOWER_COST))
-	layer.add_child(btn_tower)
+	# BUILD toggle (left side) opens a menu of all placeable structures
+	btn_build = _hud_button("BUILD", -160, Color(0.4, 0.58, 0.42), true)
+	btn_build.pressed.connect(_toggle_build_menu)
+	layer.add_child(btn_build)
+	var off := -160.0 - 92.0
+	for bdef in BUILDABLES:
+		var mb := _menu_button("%s  %dg" % [bdef["l"], bdef["c"]], off, Color(0.42, 0.5, 0.62))
+		mb.set_meta("cost", bdef["c"])
+		var bt: String = bdef["t"]
+		var bc: int = bdef["c"]
+		mb.pressed.connect(func(): _place_building(bt, bc))
+		mb.visible = false
+		build_menu.append(mb)
+		layer.add_child(mb)
+		off -= 78.0
 
 	# end-of-game overlay
 	overlay = ColorRect.new()
@@ -405,6 +423,38 @@ func _hud_button(text: String, top_off: float, col: Color, left := false) -> But
 	return b
 
 
+# A compact left-side button used for the build menu list.
+func _menu_button(text: String, top_off: float, col: Color) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_size_override("font_size", 19)
+	b.anchor_top = 1.0
+	b.anchor_bottom = 1.0
+	b.anchor_left = 0.0
+	b.anchor_right = 0.0
+	b.offset_left = 24
+	b.offset_right = 196
+	b.offset_top = top_off
+	b.offset_bottom = top_off + 68
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(col.r, col.g, col.b, 0.92)
+	sb.set_corner_radius_all(14)
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	var sbd := sb.duplicate() as StyleBoxFlat
+	sbd.bg_color = Color(col.r * 0.5, col.g * 0.5, col.b * 0.5, 0.92)
+	b.add_theme_stylebox_override("disabled", sbd)
+	return b
+
+
+func _toggle_build_menu() -> void:
+	_ensure_music()
+	build_menu_open = not build_menu_open
+	for b in build_menu:
+		b.visible = build_menu_open
+	btn_build.text = "BUILD ▲" if build_menu_open else "BUILD"
+
+
 func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -440,10 +490,11 @@ func _process(delta: float) -> void:
 	hero.move_input = Vector2(world.x, world.z)
 	if v.length() > 0.01:
 		_ensure_music()   # first user gesture -> safe to start audio on web
-	# dim build buttons we can't afford
-	btn_tower.disabled = gold < TOWER_COST
-	btn_wall.disabled = gold < WALL_COST
+	# dim buttons we can't act on
 	btn_hire.disabled = gold < HIRE_COST or workers.size() >= worker_cap
+	if build_menu_open:
+		for mb in build_menu:
+			mb.disabled = gold < int(mb.get_meta("cost"))
 
 	var moving := v.length() >= 0.05
 	# the player instantly collects any resource pile it walks over (no carrying)
@@ -468,15 +519,12 @@ func _process(delta: float) -> void:
 	if moving or has_target:
 		hero.gather_target = null
 	else:
-		# standing still with nothing in the cone: build on a pad we're stood on
+		# standing still with nothing in the cone: train soldiers on a barracks pad
 		var pad := nearest_pad(hero.position, BUILD_RANGE)
 		if pad != null and gold >= pad.cost:
 			hero.gather_target = pad
 			if pad.advance(delta):
-				if pad.btype == "train":
-					_train_soldier(pad)
-				else:
-					_construct(pad)
+				_train_soldier(pad)
 		else:
 			hero.gather_target = null
 
@@ -676,28 +724,13 @@ func hire_worker() -> void:
 # ---------------------------------------------------------------------------
 # Build system
 # ---------------------------------------------------------------------------
-func _build_pads() -> void:
-	# Towers and walls are placed freely (HUD buttons -> in front of the hero);
-	# only the town buildings live on fixed pads.
-	var defs := [
-		{"type": "house", "cost": 20, "label": "House", "path": HOME, "pos": Vector3(-3.6, 0, 1.7)},
-		{"type": "workshop", "cost": 45, "label": "Market", "path": MARKET, "pos": Vector3(3.6, 0, 1.7)},
-		{"type": "barracks", "cost": 80, "label": "Barracks", "path": BARRACKS, "pos": Vector3(0, 0, -3.6)},
-	]
-	for d in defs:
-		var p := BuildPad3D.new()
-		p.position = d["pos"]
-		p.setup(self, d["type"], d["cost"], d["label"], d["path"])
-		add_child(p)
-		build_pads.append(p)
-
-
-# Free-placement: drop a tower/wall just in front of the hero if the spot is clear.
-func _try_place(btype: String, cost: int) -> void:
+# Free placement: drops the chosen structure just in front of the hero, oriented
+# to the hero's facing (so walls can run any direction), if the spot is clear.
+func _place_building(btype: String, cost: int) -> void:
 	_ensure_music()
 	if game_over or gold < cost:
 		return
-	var pos: Vector3 = hero.position + _hero_forward() * 1.6
+	var pos: Vector3 = hero.position + _hero_forward() * 2.0
 	pos.y = 0.0
 	if not _valid_build_spot(pos):
 		_popup(hero.position + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
@@ -706,36 +739,81 @@ func _try_place(btype: String, cost: int) -> void:
 	gold -= cost
 	lbl_gold.text = "Gold: %d" % gold
 	Sfx.play("build", -3.0, 0.05, 3)
-	if btype == "tower":
-		var t := Tower3D.new()
-		t.position = pos
-		add_child(t)
-		t.setup(self)
-		towers.append(t)
-		_pop_in(t, 1.0)
-	else:
-		var w := Wall3D.new()
-		w.position = pos
-		add_child(w)
-		w.setup(self)
-		walls.append(w)
-		_pop_in(w, 1.0)
+	var yaw: float = hero.model.rotation.y
+	match btype:
+		"tower":
+			var t := Tower3D.new()
+			t.position = pos
+			t.rotation.y = yaw
+			add_child(t)
+			t.setup(self)
+			towers.append(t)
+			_pop_in(t, 1.0)
+		"wall":
+			var w := Wall3D.new()
+			w.position = pos
+			w.rotation.y = yaw
+			add_child(w)
+			w.setup(self)
+			walls.append(w)
+			_pop_in(w, 1.0)
+		_:
+			_make_building(btype, pos, yaw)
+
+
+func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
+	var path: String = {"house": HOME, "workshop": MARKET, "barracks": BARRACKS}[btype]
+	var bscale: float = BUILDING_SCALE.get(btype, 1.0)
+	var b := (load(path) as PackedScene).instantiate()
+	b.position = pos
+	b.rotation.y = yaw
+	add_child(b)
+	_pop_in(b, bscale)
+	buildings.append(b)
+	var brad: float = BUILDING_BLOB.get(btype, 1.0)
+	var blob := Rig.blob_shadow(brad)
+	blob.position = pos
+	blob.position.y = 0.03
+	add_child(blob)
+	var col := Rig.obstacle(brad * 0.8)
+	col.position = pos
+	add_child(col)
+	match btype:
+		"house":
+			worker_cap += 2
+			lbl_pop.text = "Workers: %d/%d" % [workers.size(), worker_cap]
+		"workshop":
+			workshops += 1
+		"barracks":
+			barracks_count += 1
+			# reusable "train soldier" pad beside the barracks (rotated with it)
+			var tp := BuildPad3D.new()
+			tp.position = pos + Vector3(2.0, 0, 0).rotated(Vector3.UP, yaw)
+			tp.setup(self, "train", SOLDIER_COST, "Train", BARRACKS)
+			add_child(tp)
+			build_pads.append(tp)
 
 
 func _valid_build_spot(pos: Vector3) -> bool:
 	var r := field_rect
 	if pos.x < r.position.x + 0.5 or pos.x > r.end.x - 0.5 or pos.z < r.position.y + 0.5 or pos.z > r.end.y - 0.5:
 		return false
-	if Vector2(pos.x, pos.z).length() < 2.4:   # keep clear of the Keep
+	if Vector2(pos.x, pos.z).length() < 2.8:   # keep clear of the Keep
 		return false
 	for p in build_pads:
-		if Vector2(pos.x - p.position.x, pos.z - p.position.z).length() < 1.8:
+		if Vector2(pos.x - p.position.x, pos.z - p.position.z).length() < 1.7:
 			return false
 	for t in towers:
-		if is_instance_valid(t) and Vector2(pos.x - t.position.x, pos.z - t.position.z).length() < 1.6:
+		if is_instance_valid(t) and Vector2(pos.x - t.position.x, pos.z - t.position.z).length() < 1.9:
 			return false
 	for w in walls:
-		if is_instance_valid(w) and Vector2(pos.x - w.position.x, pos.z - w.position.z).length() < 1.6:
+		if is_instance_valid(w) and Vector2(pos.x - w.position.x, pos.z - w.position.z).length() < 1.4:
+			return false
+	for bd in buildings:
+		if is_instance_valid(bd) and Vector2(pos.x - bd.position.x, pos.z - bd.position.z).length() < 2.2:
+			return false
+	for nn in resource_nodes:
+		if not nn.depleted and Vector2(pos.x - nn.global_position.x, pos.z - nn.global_position.z).length() < 1.3:
 			return false
 	return true
 
@@ -780,62 +858,6 @@ func nearest_pad(from: Vector3, rng: float) -> BuildPad3D:
 			bestd = d
 			best = p
 	return best
-
-
-func _construct(pad: BuildPad3D) -> void:
-	if pad.built:
-		return
-	gold -= pad.cost
-	lbl_gold.text = "Gold: %d" % gold
-	pad.mark_built()
-	Sfx.play("build", -3.0, 0.05, 3)
-	# towers and walls are their own controller nodes (not plain buildings)
-	if pad.btype == "tower":
-		var t := Tower3D.new()
-		t.position = pad.position
-		add_child(t)
-		t.setup(self)
-		towers.append(t)
-		_pop_in(t, 1.0)
-		return
-	if pad.btype == "wall":
-		var w := Wall3D.new()
-		w.position = pad.position
-		add_child(w)
-		w.setup(self)
-		walls.append(w)
-		_pop_in(w, 1.0)
-		return
-	var bscale: float = BUILDING_SCALE.get(pad.btype, 1.0)
-	var b := (load(pad.building_path) as PackedScene).instantiate()
-	b.position = pad.position
-	add_child(b)
-	b.scale = Vector3.ONE * bscale * 0.3
-	var tw := create_tween()
-	tw.tween_property(b, "scale", Vector3.ONE * bscale, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	# fake ground shadow under the building (not parented to b, so it isn't scaled)
-	var brad: float = BUILDING_BLOB.get(pad.btype, 1.0)
-	var blob := Rig.blob_shadow(brad)
-	blob.position = pad.position
-	blob.position.y = 0.03
-	add_child(blob)
-	var col := Rig.obstacle(brad * 0.8)   # solid building footprint
-	col.position = pad.position
-	add_child(col)
-	match pad.btype:
-		"house":
-			worker_cap += 2
-			lbl_pop.text = "Workers: %d/%d" % [workers.size(), worker_cap]
-		"workshop":
-			workshops += 1
-		"barracks":
-			barracks_count += 1
-			# place a reusable "train soldier" pad beside the barracks
-			var tp := BuildPad3D.new()
-			tp.position = pad.position + Vector3(1.8, 0, 0)
-			tp.setup(self, "train", SOLDIER_COST, "Train", BARRACKS)
-			add_child(tp)
-			build_pads.append(tp)
 
 
 # ---------------------------------------------------------------------------
