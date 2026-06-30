@@ -23,6 +23,9 @@ var speed := 1.6
 var atk_interval := 1.2
 var atk_cd := 0.0
 var dead := false
+var hpbar: Node3D
+var bar_fill: MeshInstance3D
+var bar_mat: StandardMaterial3D
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -38,11 +41,41 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	ap = Rig.attach(model, "skeleton")
 	_play("Idle_A")
 	add_to_group("enemies")
+	_make_hpbar()
+
+
+func _make_hpbar() -> void:
+	hpbar = Node3D.new()
+	hpbar.position = Vector3(0, 1.6, 0)
+	add_child(hpbar)
+	hpbar.add_child(_bar_quad(Color(0, 0, 0, 0.6)))   # background
+	bar_fill = _bar_quad(Color(0.3, 0.9, 0.3, 1.0))
+	bar_fill.position.z = 0.01
+	bar_mat = bar_fill.material_override
+	hpbar.add_child(bar_fill)
+
+
+func _bar_quad(col: Color) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(0.9, 0.13)
+	m.mesh = q
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true
+	m.material_override = mat
+	return m
 
 
 func _process(delta: float) -> void:
 	if dead:
 		return
+	var frac := clampf(hp / max_hp, 0.0, 1.0)
+	bar_fill.scale.x = frac
+	bar_mat.albedo_color = Color(1.0 - frac, frac, 0.2)
 	atk_cd -= delta
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
@@ -71,6 +104,7 @@ func take_damage(amount: float) -> void:
 
 func _die() -> void:
 	dead = true
+	hpbar.visible = false
 	remove_from_group("enemies")
 	died.emit(reward, global_position)
 	_play("Death_A")

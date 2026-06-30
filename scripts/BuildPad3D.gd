@@ -79,6 +79,10 @@ func advance(delta: float) -> bool:
 	return progress >= 1.0
 
 
+func reset() -> void:
+	progress = 0.0
+
+
 func mark_built() -> void:
 	built = true
 	marker.visible = false

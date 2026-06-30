@@ -32,11 +32,12 @@ const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 
 const HERO_ATK_RANGE := 2.6
-const HERO_DMG := 25.0
-const HERO_ATK_CD := 0.45
+const HERO_DMG := 14.0
+const HERO_ATK_CD := 0.5
 const KEEP_MAX := 1500.0
 const TOTAL_WAVES := 8
-const SOLDIERS_PER_BARRACKS := 2
+const SOLDIER_COST := 30
+const NPC_SPEED := 2.1   # ~50% of the player's max speed (4.2)
 
 var hero: Hero3D
 var cam: Camera3D
@@ -71,6 +72,7 @@ var hero_atk_cd := 0.0
 var game_over := false
 var lbl_keep: Label
 var lbl_wave: Label
+var lbl_soldiers: Label
 var btn_wave: Button
 var overlay: ColorRect
 var lbl_end: Label
@@ -213,7 +215,9 @@ func _build_touch_ui() -> void:
 	layer.add_child(lbl_keep)
 	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 86), Color(0.8, 1, 0.8))
 	layer.add_child(lbl_pop)
-	lbl_wave = _hud_label("Wave: 0/%d" % TOTAL_WAVES, Vector2(22, 120), Color(0.95, 0.7, 0.7))
+	lbl_soldiers = _hud_label("Soldiers: 0", Vector2(22, 120), Color(1, 0.8, 0.6))
+	layer.add_child(lbl_soldiers)
+	lbl_wave = _hud_label("Wave: 0/%d" % TOTAL_WAVES, Vector2(22, 154), Color(0.95, 0.7, 0.7))
 	layer.add_child(lbl_wave)
 
 	btn_hire = _hud_button("HIRE\nWORKER\n%dg" % HIRE_COST, -160, Color(0.45, 0.7, 0.45))
@@ -323,7 +327,10 @@ func _process(delta: float) -> void:
 			if pad != null and gold >= pad.cost:
 				hero.gather_target = pad
 				if pad.advance(delta):
-					_construct(pad)
+					if pad.btype == "train":
+						_train_soldier(pad)
+					else:
+						_construct(pad)
 			else:
 				var node := nearest_resource(hero.position, GATHER_RANGE)
 				hero.gather_target = node
@@ -435,8 +442,12 @@ func _construct(pad: BuildPad3D) -> void:
 			workshops += 1
 		"barracks":
 			barracks_count += 1
-			for s in range(SOLDIERS_PER_BARRACKS):
-				_spawn_soldier()
+			# place a reusable "train soldier" pad beside the barracks
+			var tp := BuildPad3D.new()
+			tp.position = pad.position + Vector3(1.8, 0, 0)
+			tp.setup(self, "train", SOLDIER_COST, "Train", BARRACKS)
+			add_child(tp)
+			build_pads.append(tp)
 
 
 # ---------------------------------------------------------------------------
@@ -465,14 +476,25 @@ func damage_keep(amt: float) -> void:
 		_end_game(false)
 
 
-func _spawn_soldier() -> void:
+func _train_soldier(pad: BuildPad3D) -> void:
+	if gold < SOLDIER_COST:
+		return
+	gold -= SOLDIER_COST
+	lbl_gold.text = "Gold: %d" % gold
+	_spawn_soldier(pad.position)
+	pad.reset()
+
+
+func _spawn_soldier(from: Vector3) -> void:
+	# guard post: a ring around the Keep
 	var ang := randf() * TAU
-	var gpos := keep_pos + Vector3(cos(ang), 0, sin(ang)) * 3.0
+	var guard := keep_pos + Vector3(cos(ang), 0, sin(ang)) * 3.2
 	var s := Soldier3D.new()
-	s.position = gpos
+	s.position = from
 	add_child(s)
-	s.setup(self, gpos)
+	s.setup(self, guard)
 	soldiers.append(s)
+	lbl_soldiers.text = "Soldiers: %d" % soldiers.size()
 
 
 func start_wave() -> void:
@@ -490,8 +512,8 @@ func start_wave() -> void:
 
 func _enemy_cfg(n: int) -> Dictionary:
 	return {
-		"hp": 35.0 + n * 10.0,
-		"speed": 1.5 + n * 0.06,
+		"hp": 55.0 + n * 14.0,     # several hits to kill (not one-shot)
+		"speed": NPC_SPEED,
 		"reward": 5 + n,
 		"dmg": 5.0 + n * 0.8,
 	}

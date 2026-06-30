@@ -7,7 +7,7 @@ extends Node3D
 const CHAR := "res://Models/characters/Barbarian.glb"
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
-const SPEED := 3.0
+const SPEED := 2.1     # ~50% of player speed
 const DAMAGE := 20.0
 const ATK_CD := 0.7
 const REACH := 1.8
