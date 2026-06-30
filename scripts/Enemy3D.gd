@@ -1,5 +1,5 @@
 class_name Enemy3D
-extends Node3D
+extends CharacterBody3D
 
 # A skeleton raider. Walks to the Keep and attacks it; has HP, dies with the
 # death animation, and rewards gold. Uses the skeleton's own Rig_Medium anims.
@@ -38,6 +38,7 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	add_child(Rig.blob_shadow())
+	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "skeleton")
 	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
 	_play("Idle_A")
@@ -57,7 +58,7 @@ func _make_hpbar() -> void:
 	hpbar.add_child(bar_fill)
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if dead:
 		return
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
@@ -74,8 +75,8 @@ func _process(delta: float) -> void:
 			atk_cd = atk_interval
 			game.damage_keep(dmg)
 	else:
-		var dir := Vector3(to.x, 0, to.z).normalized()
-		global_position += dir * speed * delta
+		velocity = Vector3(to.x, 0, to.z).normalized() * speed
+		move_and_slide()
 		_face(game.keep_pos)
 		_play("Walking_C")
 		ap.speed_scale = speed / WALK_REF
@@ -92,6 +93,8 @@ func take_damage(amount: float) -> void:
 func _die() -> void:
 	dead = true
 	hpbar.visible = false
+	collision_layer = 0   # corpse stops blocking the living
+	collision_mask = 0
 	remove_from_group("enemies")
 	died.emit(reward, global_position)
 	_play("Death_A")

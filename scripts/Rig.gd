@@ -86,6 +86,41 @@ static func blob_shadow(radius := 0.38) -> MeshInstance3D:
 	return m
 
 
+# Collision layers: units occupy layer 1, static obstacles occupy layer 2.
+const L_UNIT := 1
+const L_OBSTACLE := 2
+
+
+# Capsule collider for a walking unit. Origin is at the feet (model origin), so
+# the shape is centred at half-height. Call on a CharacterBody3D.
+static func make_unit_body(body: CharacterBody3D, radius := 0.36, height := 1.4) -> void:
+	body.motion_mode = CharacterBody3D.MOTION_MODE_FLOATING   # top-down: no gravity/floor
+	body.collision_layer = L_UNIT
+	body.collision_mask = L_UNIT | L_OBSTACLE                 # bump other units + buildings
+	var cs := CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = radius
+	cap.height = maxf(height, radius * 2.0)
+	cs.shape = cap
+	cs.position.y = height * 0.5
+	body.add_child(cs)
+
+
+# A static cylindrical obstacle (building / tree / rock) that units slide around.
+static func obstacle(radius: float, height := 3.0) -> StaticBody3D:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = L_OBSTACLE
+	sb.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = radius
+	cyl.height = height
+	cs.shape = cyl
+	cs.position.y = height * 0.5
+	sb.add_child(cs)
+	return sb
+
+
 # Recursively toggle shadow casting on all meshes (perf: small/many objects off).
 static func set_shadows(n: Node, on: bool) -> void:
 	if n is GeometryInstance3D:

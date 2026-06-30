@@ -1,5 +1,5 @@
 class_name Hero3D
-extends Node3D
+extends CharacterBody3D
 
 # Player-controlled hero. Moves on the ground (XZ) from a 2D input vector set by
 # Game3D each frame (joystick / WASD), faces its movement, and blends idle/walk.
@@ -27,17 +27,19 @@ func _ready() -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	add_child(Rig.blob_shadow(0.42))
+	Rig.make_unit_body(self)
 	ap = Rig.attach(model)
 	_play("Idle_A")
 
 
-func _process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	# move_input is a world-space XZ direction; its magnitude (0..1) is analog throttle
 	var mag := minf(move_input.length(), 1.0)
 	if mag > 0.15:
 		var dir := Vector3(move_input.x, 0.0, move_input.y).normalized()
 		var spd := SPEED * mag
-		position += dir * spd * delta
+		velocity = dir * spd
+		move_and_slide()
 		if bounds.size != Vector2.ZERO:
 			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
 			position.z = clampf(position.z, bounds.position.y, bounds.end.y)
@@ -49,7 +51,9 @@ func _process(delta: float) -> void:
 		else:
 			_play("Walking_C")
 			ap.speed_scale = clampf(spd / WALK_REF, 0.6, 1.8)
-	elif gather_target != null and is_instance_valid(gather_target):
+		return
+	velocity = Vector3.ZERO
+	if gather_target != null and is_instance_valid(gather_target):
 		var d: Vector3 = gather_target.global_position - global_position
 		if Vector2(d.x, d.z).length() > 0.05:
 			model.rotation.y = atan2(d.x, d.z) + FACE_OFFSET

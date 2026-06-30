@@ -15,6 +15,7 @@ var regrow_time := 10.0
 var progress := 0.0
 var depleted := false
 var model: Node3D
+var body: StaticBody3D
 
 
 func setup(type: String) -> void:
@@ -33,6 +34,8 @@ func setup(type: String) -> void:
 	model.rotation.y = randf() * TAU
 	add_child(model)
 	Rig.set_shadows(model, false)   # perf: many props, skip their shadows
+	body = Rig.obstacle(0.5 if type == "rock" else 0.4, 1.5)
+	add_child(body)
 
 
 func work(delta: float) -> bool:
@@ -48,6 +51,7 @@ func work(delta: float) -> bool:
 func _deplete() -> void:
 	depleted = true
 	progress = 0.0
+	body.collision_layer = 0   # nothing to bump into while it's gone
 	var tw := create_tween()
 	tw.tween_property(model, "scale", Vector3.ONE * 0.05, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 	tw.tween_callback(func(): model.visible = false)
@@ -56,6 +60,7 @@ func _deplete() -> void:
 
 func _regrow() -> void:
 	depleted = false
+	body.collision_layer = Rig.L_OBSTACLE
 	model.visible = true
 	model.scale = Vector3.ONE * 0.05
 	var tw := create_tween()

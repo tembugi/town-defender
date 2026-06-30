@@ -1,5 +1,5 @@
 class_name Worker3D
-extends Node3D
+extends CharacterBody3D
 
 # Auto-gathering villager: seek nearest resource -> walk -> harvest -> carry the
 # yield to the Keep -> deposit gold -> repeat. Uses a Rogue model (distinct from
@@ -27,12 +27,13 @@ func setup(g: Node) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	add_child(Rig.blob_shadow())
+	Rig.make_unit_body(self)
 	ap = Rig.attach(model)
 	Rig.set_shadows(model, false)
 	_play("Idle_A")
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	match state:
 		"seek": _seek(delta)
 		"harvest": _harvest(delta)
@@ -77,11 +78,11 @@ func _carry(delta: float) -> void:
 	_move_toward(dest, delta)
 
 
-func _move_toward(p: Vector3, delta: float) -> void:
+func _move_toward(p: Vector3, _delta: float) -> void:
 	var to: Vector3 = p - global_position
 	to.y = 0
-	var dir := to.normalized()
-	global_position += dir * SPEED * delta
+	velocity = to.normalized() * SPEED
+	move_and_slide()
 	_face(p)
 	_play("Walking_C")
 	ap.speed_scale = SPEED / WALK_REF   # match feet to ground speed (no skating)

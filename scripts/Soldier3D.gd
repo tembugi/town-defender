@@ -1,5 +1,5 @@
 class_name Soldier3D
-extends Node3D
+extends CharacterBody3D
 
 # A Barracks defender (Barbarian). Holds a guard post near the Keep; charges and
 # attacks enemies that come within the Keep's defensive leash, then returns.
@@ -29,12 +29,13 @@ func setup(g: Node, gpos: Vector3) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	add_child(Rig.blob_shadow(0.42))
+	Rig.make_unit_body(self)
 	ap = Rig.attach(model, "adventurer")
 	Rig.set_shadows(model, false)
 	_play("Idle_A")
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	atk_cd -= delta
 	var e := _target()
 	if e != null:
@@ -79,10 +80,11 @@ func _strike(e: Enemy3D) -> void:
 				tgt.take_damage(DAMAGE))
 
 
-func _move_toward(p: Vector3, delta: float) -> void:
+func _move_toward(p: Vector3, _delta: float) -> void:
 	var to: Vector3 = p - global_position
 	to.y = 0
-	global_position += to.normalized() * SPEED * delta
+	velocity = to.normalized() * SPEED
+	move_and_slide()
 	_face(p)
 	_play("Walking_C")
 	ap.speed_scale = SPEED / WALK_REF

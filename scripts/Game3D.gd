@@ -162,6 +162,7 @@ func _build_world() -> void:
 	var keep_blob := Rig.blob_shadow(1.5)
 	keep_blob.position.y = 0.03
 	keep_node.add_child(keep_blob)
+	keep_node.add_child(Rig.obstacle(1.3, 4.0))   # units can't walk into the Keep
 	var kb := Node3D.new()
 	kb.position = Vector3(0, 4.6, 0)
 	keep_node.add_child(kb)
@@ -462,10 +463,14 @@ func _construct(pad: BuildPad3D) -> void:
 	var tw := create_tween()
 	tw.tween_property(b, "scale", Vector3.ONE * bscale, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	# fake ground shadow under the building (not parented to b, so it isn't scaled)
-	var blob := Rig.blob_shadow(BUILDING_BLOB.get(pad.btype, 1.0))
+	var brad: float = BUILDING_BLOB.get(pad.btype, 1.0)
+	var blob := Rig.blob_shadow(brad)
 	blob.position = pad.position
 	blob.position.y = 0.03
 	add_child(blob)
+	var col := Rig.obstacle(brad * 0.8)   # solid building footprint
+	col.position = pad.position
+	add_child(col)
 	match pad.btype:
 		"house":
 			worker_cap += 2
@@ -522,7 +527,11 @@ func _spawn_soldier(from: Vector3) -> void:
 	var ang := randf() * TAU
 	var guard := keep_pos + Vector3(cos(ang), 0, sin(ang)) * 3.2
 	var s := Soldier3D.new()
-	s.position = from
+	# spawn just outside the barracks footprint (toward the Keep) so it isn't
+	# born inside the building's collider
+	var out: Vector3 = (keep_pos - from)
+	out.y = 0
+	s.position = from + out.normalized() * 1.6
 	add_child(s)
 	s.setup(self, guard)
 	soldiers.append(s)
