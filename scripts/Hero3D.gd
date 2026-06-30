@@ -46,17 +46,12 @@ func _physics_process(delta: float) -> void:
 		if bounds.size != Vector2.ZERO:
 			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
 			position.z = clampf(position.z, bounds.position.y, bounds.end.y)
-		# while swinging on the move, face the target and play the attack instead
-		if swinging and gather_target != null and is_instance_valid(gather_target):
-			var gd: Vector3 = gather_target.global_position - global_position
-			if Vector2(gd.x, gd.z).length() > 0.05:
-				model.rotation.y = atan2(gd.x, gd.z) + FACE_OFFSET
+		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
+		# swing in our current facing while moving; otherwise normal locomotion
+		if swinging:
 			_play("Interact")
 			ap.speed_scale = 1.4
-			return
-		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
-		# walk for slow, run for fast; scale playback to ground speed so feet don't slide
-		if spd >= RUN_THRESHOLD:
+		elif spd >= RUN_THRESHOLD:
 			_play("Running_A")
 			ap.speed_scale = clampf(spd / RUN_REF, 0.6, 1.6)
 		else:
@@ -64,7 +59,11 @@ func _physics_process(delta: float) -> void:
 			ap.speed_scale = clampf(spd / WALK_REF, 0.6, 1.8)
 		return
 	velocity = Vector3.ZERO
-	if gather_target != null and is_instance_valid(gather_target):
+	# standing still: swing keeps the last facing (no auto-aim onto enemies)
+	if swinging:
+		_play("Interact")
+		ap.speed_scale = 1.4
+	elif gather_target != null and is_instance_valid(gather_target):
 		var d: Vector3 = gather_target.global_position - global_position
 		if Vector2(d.x, d.z).length() > 0.05:
 			model.rotation.y = atan2(d.x, d.z) + FACE_OFFSET

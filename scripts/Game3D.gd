@@ -36,8 +36,10 @@ const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
 const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
 const HERO_ATK_RANGE := 1.5
+const HERO_ARC := deg_to_rad(75.0)   # frontal cone the swing actually hits
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
+const HERO_PICKUP := 1.1             # the player grabs resource piles within this
 const KEEP_MAX := 1500.0
 const TOTAL_WAVES := 8
 const WAVE_CD := 5.0          # seconds between launching waves (can stack waves)
@@ -354,21 +356,21 @@ func _process(delta: float) -> void:
 	hero.move_input = Vector2(world.x, world.z)
 
 	var moving := v.length() >= 0.05
-	# combat first, and it works on the move: swing at the nearest enemy in reach
-	var enemy := nearest_enemy(hero.position, HERO_ATK_RANGE)
-	if enemy != null:
-		hero.gather_target = enemy   # face the target while swinging
-		if hero_atk_cd <= 0.0:
-			hero_atk_cd = HERO_ATK_CD
-			hero.attack_anim_t = 0.35   # play a swing even if we're walking
-			var tgt := enemy
-			get_tree().create_timer(0.2).timeout.connect(func():
-				if is_instance_valid(tgt) and not tgt.dead:
-					# only land the hit if the enemy is still in reach
-					var d := Vector2(tgt.global_position.x - hero.position.x, tgt.global_position.z - hero.position.z).length()
-					if d <= HERO_ATK_RANGE + 0.2:
-						tgt.take_damage(HERO_DMG))
-	elif moving:
+	# the player instantly collects any resource pile it walks over (no carrying)
+	for d in get_tree().get_nodes_in_group("drops"):
+		var rd := d as ResourceDrop3D
+		if rd.taken:
+			continue
+		if Vector2(rd.position.x - hero.position.x, rd.position.z - hero.position.z).length() <= HERO_PICKUP:
+			_gain_gold(rd.pick_up())
+	# combat works on the move and swings where the hero faces (no lock-on);
+	# damage only lands on enemies inside the frontal arc + range.
+	var threat := nearest_enemy(hero.position, HERO_ATK_RANGE + 0.3) != null
+	if threat and hero_atk_cd <= 0.0:
+		hero_atk_cd = HERO_ATK_CD
+		hero.attack_anim_t = 0.35
+		_hero_swing()
+	if moving or threat:
 		hero.gather_target = null
 	else:
 		# standing still and nothing to fight: build on a pad, else gather a node
@@ -384,7 +386,7 @@ func _process(delta: float) -> void:
 			var node := nearest_resource(hero.position, GATHER_RANGE)
 			hero.gather_target = node
 			if node != null and node.work(delta):
-				spawn_drop(node.global_position, node.yield_amt)   # fell -> drop on ground
+				spawn_drop(node.global_position, node.yield_amt, node.ntype)   # fell -> drop
 
 	# passive income from workshops/markets
 	if workshops > 0:
@@ -547,6 +549,25 @@ func _construct(pad: BuildPad3D) -> void:
 # ---------------------------------------------------------------------------
 # Combat / waves
 # ---------------------------------------------------------------------------
+# A directional melee swing: lands HERO_DMG on every live enemy within reach that
+# sits inside the frontal cone of wherever the hero is facing. Captures the facing
+# at swing start; damage applies after a short windup, only if the hit connects.
+func _hero_swing() -> void:
+	var yaw: float = hero.model.rotation.y
+	var fwd := Vector3(sin(yaw), 0, cos(yaw))
+	var origin := hero.position
+	get_tree().create_timer(0.2).timeout.connect(func():
+		for e in get_tree().get_nodes_in_group("enemies"):
+			var en := e as Enemy3D
+			if en.dead:
+				continue
+			var to: Vector3 = en.global_position - origin
+			to.y = 0.0
+			var d := to.length()
+			if d <= HERO_ATK_RANGE + 0.2 and d > 0.05 and fwd.angle_to(to / d) <= HERO_ARC:
+				en.take_damage(HERO_DMG))
+
+
 func nearest_enemy(from: Vector3, rng: float) -> Enemy3D:
 	var best: Enemy3D = null
 	var bestd := rng

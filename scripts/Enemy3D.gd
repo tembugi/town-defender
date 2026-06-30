@@ -70,17 +70,16 @@ func _physics_process(delta: float) -> void:
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
 	var in_range := dist <= ATTACK_RANGE
-	# steer = pull toward the Keep (only while out of range) + separation from
-	# neighbours, so raiders fan out and slide into open gaps around the Keep
-	# instead of stacking single-file behind whoever's in front.
-	var seek := Vector3.ZERO
-	if not in_range:
-		seek = Vector3(to.x, 0, to.z).normalized()
-	var steer := seek + _separation() * SEP_WEIGHT
-	if steer.length() > 0.01:
-		velocity = steer.normalized() * speed * (1.0 if not in_range else 0.6)
-	else:
+	# Out of range: steer = pull toward the Keep + separation from neighbours, so
+	# raiders fan out into open gaps. In range: plant and attack (no steering), so
+	# a packed crowd with nowhere to go stops dead instead of jittering.
+	if in_range:
 		velocity = Vector3.ZERO
+	else:
+		var steer := Vector3(to.x, 0, to.z).normalized() + _separation() * SEP_WEIGHT
+		# deadzone: when the pull and the crowd pressure roughly cancel, hold still
+		# rather than vibrate back and forth on near-zero net force
+		velocity = steer.normalized() * speed if steer.length() > 0.3 else Vector3.ZERO
 	move_and_slide()
 	_face(game.keep_pos)
 	if in_range:
@@ -89,9 +88,12 @@ func _physics_process(delta: float) -> void:
 		if atk_cd <= 0.0:
 			atk_cd = atk_interval
 			game.damage_keep(dmg)
-	else:
+	elif velocity.length() > 0.05:
 		_play("Walking_C")
 		ap.speed_scale = speed / WALK_REF
+	else:
+		_play("Idle_A")          # held by the crowd: stand, don't skate in place
+		ap.speed_scale = 1.0
 
 
 # push away from nearby raiders, weighted stronger the closer they are
