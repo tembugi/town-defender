@@ -19,7 +19,8 @@ var ap: AnimationPlayer
 var anim := ""
 var move_input := Vector2.ZERO   # x = world X, y = world Z (set by Game3D)
 var bounds := Rect2()            # XZ play area; clamp position when set
-var gather_target: Node3D = null # when set and not moving, play the gather anim facing it
+var gather_target: Node3D = null # when set, face it (enemy to swing at / node / pad)
+var attack_anim_t := 0.0         # >0 while a swing should play, even on the move
 
 
 func _ready() -> void:
@@ -32,7 +33,9 @@ func _ready() -> void:
 	_play("Idle_A")
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	attack_anim_t = maxf(0.0, attack_anim_t - delta)
+	var swinging := attack_anim_t > 0.0
 	# move_input is a world-space XZ direction; its magnitude (0..1) is analog throttle
 	var mag := minf(move_input.length(), 1.0)
 	if mag > 0.15:
@@ -43,6 +46,14 @@ func _physics_process(_delta: float) -> void:
 		if bounds.size != Vector2.ZERO:
 			position.x = clampf(position.x, bounds.position.x, bounds.end.x)
 			position.z = clampf(position.z, bounds.position.y, bounds.end.y)
+		# while swinging on the move, face the target and play the attack instead
+		if swinging and gather_target != null and is_instance_valid(gather_target):
+			var gd: Vector3 = gather_target.global_position - global_position
+			if Vector2(gd.x, gd.z).length() > 0.05:
+				model.rotation.y = atan2(gd.x, gd.z) + FACE_OFFSET
+			_play("Interact")
+			ap.speed_scale = 1.4
+			return
 		model.rotation.y = atan2(dir.x, dir.z) + FACE_OFFSET
 		# walk for slow, run for fast; scale playback to ground speed so feet don't slide
 		if spd >= RUN_THRESHOLD:

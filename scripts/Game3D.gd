@@ -35,7 +35,7 @@ const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gl
 const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
 const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
-const HERO_ATK_RANGE := 1.8
+const HERO_ATK_RANGE := 1.5
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
 const KEEP_MAX := 1500.0
@@ -54,6 +54,7 @@ var keep_pos := Vector3.ZERO
 var gold := 100
 var worker_cap := 6
 var resource_nodes: Array[ResourceNode3D] = []
+var drops: Array[ResourceDrop3D] = []   # loose resources on the ground awaiting pickup
 var workers: Array[Worker3D] = []
 var build_pads: Array[BuildPad3D] = []
 var workshops := 0
@@ -65,7 +66,6 @@ var btn_hire: Button
 
 # combat / waves
 var keep_node: Node3D
-var _enemy_slot := 0   # increments per spawned enemy, fans them around the Keep
 var keep_hp := KEEP_MAX
 var keep_bar_fill: MeshInstance3D
 const KEEP_BAR_W := 1.8
@@ -353,36 +353,38 @@ func _process(delta: float) -> void:
 	var world := right * v.x + (-fwd) * (-v.y)   # -fwd = into screen/up; -v.y because up is negative
 	hero.move_input = Vector2(world.x, world.z)
 
-	# when standing still: fight nearby enemy (priority) > build on pad > gather
-	if v.length() < 0.05:
-		var enemy := nearest_enemy(hero.position, HERO_ATK_RANGE)
-		if enemy != null:
-			hero.gather_target = enemy
-			if hero_atk_cd <= 0.0:
-				hero_atk_cd = HERO_ATK_CD
-				var tgt := enemy
-				get_tree().create_timer(0.25).timeout.connect(func():
-					if is_instance_valid(tgt) and not tgt.dead:
-						# only land the hit if the enemy is still in reach
-						var d := Vector2(tgt.global_position.x - hero.position.x, tgt.global_position.z - hero.position.z).length()
-						if d <= HERO_ATK_RANGE + 0.4:
-							tgt.take_damage(HERO_DMG))
-		else:
-			var pad := nearest_pad(hero.position, BUILD_RANGE)
-			if pad != null and gold >= pad.cost:
-				hero.gather_target = pad
-				if pad.advance(delta):
-					if pad.btype == "train":
-						_train_soldier(pad)
-					else:
-						_construct(pad)
-			else:
-				var node := nearest_resource(hero.position, GATHER_RANGE)
-				hero.gather_target = node
-				if node != null and node.work(delta):
-					_gain_gold(node.yield_amt)
-	else:
+	var moving := v.length() >= 0.05
+	# combat first, and it works on the move: swing at the nearest enemy in reach
+	var enemy := nearest_enemy(hero.position, HERO_ATK_RANGE)
+	if enemy != null:
+		hero.gather_target = enemy   # face the target while swinging
+		if hero_atk_cd <= 0.0:
+			hero_atk_cd = HERO_ATK_CD
+			hero.attack_anim_t = 0.35   # play a swing even if we're walking
+			var tgt := enemy
+			get_tree().create_timer(0.2).timeout.connect(func():
+				if is_instance_valid(tgt) and not tgt.dead:
+					# only land the hit if the enemy is still in reach
+					var d := Vector2(tgt.global_position.x - hero.position.x, tgt.global_position.z - hero.position.z).length()
+					if d <= HERO_ATK_RANGE + 0.2:
+						tgt.take_damage(HERO_DMG))
+	elif moving:
 		hero.gather_target = null
+	else:
+		# standing still and nothing to fight: build on a pad, else gather a node
+		var pad := nearest_pad(hero.position, BUILD_RANGE)
+		if pad != null and gold >= pad.cost:
+			hero.gather_target = pad
+			if pad.advance(delta):
+				if pad.btype == "train":
+					_train_soldier(pad)
+				else:
+					_construct(pad)
+		else:
+			var node := nearest_resource(hero.position, GATHER_RANGE)
+			hero.gather_target = node
+			if node != null and node.work(delta):
+				spawn_drop(node.global_position, node.yield_amt)   # fell -> drop on ground
 
 	# passive income from workshops/markets
 	if workshops > 0:
@@ -417,6 +419,31 @@ func nearest_resource(from: Vector3, max_range := INF) -> ResourceNode3D:
 		if d < bestd:
 			bestd = d
 			best = n
+	return best
+
+
+func spawn_drop(pos: Vector3, amt: int, ntype := "tree") -> void:
+	drops = drops.filter(func(d): return is_instance_valid(d) and not d.taken)
+	var d := ResourceDrop3D.new()
+	d.position = pos + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
+	add_child(d)
+	d.setup(amt, "stone" if ntype == "rock" else "wood")
+	drops.append(d)
+
+
+# Reserve the nearest loose drop for a worker (so two workers don't chase one).
+func claim_drop(from: Vector3) -> ResourceDrop3D:
+	var best: ResourceDrop3D = null
+	var bestd := INF
+	for d in drops:
+		if not is_instance_valid(d) or d.taken or d.reserved:
+			continue
+		var dist := Vector2(d.position.x - from.x, d.position.z - from.z).length()
+		if dist < bestd:
+			bestd = dist
+			best = d
+	if best != null:
+		best.reserved = true
 	return best
 
 
@@ -623,10 +650,6 @@ func _refresh_wave_btn() -> void:
 func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
 	var e := Enemy3D.new()
 	e.position = pos
-	# golden-angle spacing fans successive raiders around the Keep instead of
-	# funnelling them all onto one point (which made them queue single-file)
-	cfg["anchor_angle"] = _enemy_slot * 2.39996323
-	_enemy_slot += 1
 	add_child(e)
 	e.setup(self, cfg)
 	e.died.connect(_on_enemy_died)

@@ -8,7 +8,8 @@ const CHAR := "res://Models/enemies/Skeleton_Minion.glb"
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
 const ATTACK_RANGE := 2.2
-const RING := 1.9        # how far from the Keep centre this raider's attack slot sits
+const SEP_RADIUS := 1.4    # raiders push apart within this distance...
+const SEP_WEIGHT := 1.3    # ...strongly enough to flow around each other to open gaps
 
 signal died(reward: int, pos: Vector3)
 
@@ -26,7 +27,6 @@ var atk_cd := 0.0
 var dead := false
 var hpbar: Node3D
 var bar_fill: MeshInstance3D
-var anchor := Vector3.ZERO   # this raider's attack slot on the ring around the Keep
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -36,8 +36,6 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	dmg = cfg.get("dmg", 6.0)
 	reward = cfg.get("reward", 5)
 	speed = cfg.get("speed", 1.6)
-	var a: float = cfg.get("anchor_angle", randf() * TAU)
-	anchor = game.keep_pos + Vector3(cos(a), 0, sin(a)) * RING
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
@@ -71,21 +69,43 @@ func _physics_process(delta: float) -> void:
 	atk_cd -= delta
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
-	if dist <= ATTACK_RANGE:
-		_face(game.keep_pos)
+	var in_range := dist <= ATTACK_RANGE
+	# steer = pull toward the Keep (only while out of range) + separation from
+	# neighbours, so raiders fan out and slide into open gaps around the Keep
+	# instead of stacking single-file behind whoever's in front.
+	var seek := Vector3.ZERO
+	if not in_range:
+		seek = Vector3(to.x, 0, to.z).normalized()
+	var steer := seek + _separation() * SEP_WEIGHT
+	if steer.length() > 0.01:
+		velocity = steer.normalized() * speed * (1.0 if not in_range else 0.6)
+	else:
+		velocity = Vector3.ZERO
+	move_and_slide()
+	_face(game.keep_pos)
+	if in_range:
 		_play("Interact")
 		ap.speed_scale = 1.0
 		if atk_cd <= 0.0:
 			atk_cd = atk_interval
 			game.damage_keep(dmg)
 	else:
-		# steer toward this raider's own slot on the ring, not the shared centre
-		var ato: Vector3 = anchor - global_position
-		velocity = Vector3(ato.x, 0, ato.z).normalized() * speed
-		move_and_slide()
-		_face(game.keep_pos)
 		_play("Walking_C")
 		ap.speed_scale = speed / WALK_REF
+
+
+# push away from nearby raiders, weighted stronger the closer they are
+func _separation() -> Vector3:
+	var sep := Vector3.ZERO
+	for o in get_tree().get_nodes_in_group("enemies"):
+		if o == self or (o as Enemy3D).dead:
+			continue
+		var away: Vector3 = global_position - o.global_position
+		away.y = 0.0
+		var d := away.length()
+		if d > 0.001 and d < SEP_RADIUS:
+			sep += (away / d) * (1.0 - d / SEP_RADIUS)
+	return sep
 
 
 func take_damage(amount: float) -> void:
@@ -101,7 +121,7 @@ func _die() -> void:
 	hpbar.visible = false
 	collision_layer = 0   # corpse stops blocking the living
 	collision_mask = 0
-	remove_from_group("enemies")
+	remove_from_group("enemies")   # also drops out of others' separation checks
 	died.emit(reward, global_position)
 	_play("Death_A")
 	ap.speed_scale = 1.0
