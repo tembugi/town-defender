@@ -116,12 +116,14 @@ func _build_environment() -> void:
 	we.environment = env
 	add_child(we)
 
-	# warm sun with shadows
+	# warm sun with cheap, close-range shadows (orthogonal single-split)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-58, -50, 0)
 	sun.light_color = Color(1.0, 0.95, 0.84)
 	sun.light_energy = 1.4
 	sun.shadow_enabled = true
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 30.0
 	add_child(sun)
 
 
@@ -321,7 +323,10 @@ func _process(delta: float) -> void:
 			hero.gather_target = enemy
 			if hero_atk_cd <= 0.0:
 				hero_atk_cd = HERO_ATK_CD
-				enemy.take_damage(HERO_DMG)
+				var tgt := enemy
+				get_tree().create_timer(0.25).timeout.connect(func():
+					if is_instance_valid(tgt) and not tgt.dead:
+						tgt.take_damage(HERO_DMG))
 		else:
 			var pad := nearest_pad(hero.position, BUILD_RANGE)
 			if pad != null and gold >= pad.cost:

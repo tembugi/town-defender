@@ -25,7 +25,6 @@ var atk_cd := 0.0
 var dead := false
 var hpbar: Node3D
 var bar_fill: MeshInstance3D
-var bar_mat: StandardMaterial3D
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -51,7 +50,6 @@ func _make_hpbar() -> void:
 	hpbar.add_child(_bar_quad(Color(0, 0, 0, 0.6)))   # background
 	bar_fill = _bar_quad(Color(0.3, 0.9, 0.3, 1.0))
 	bar_fill.position.z = 0.01
-	bar_mat = bar_fill.material_override
 	hpbar.add_child(bar_fill)
 
 
@@ -64,6 +62,7 @@ func _bar_quad(col: Color) -> MeshInstance3D:
 	mat.albedo_color = col
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.billboard_keep_scale = true   # so scaling the fill actually shrinks it
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.no_depth_test = true
 	m.material_override = mat
@@ -73,9 +72,7 @@ func _bar_quad(col: Color) -> MeshInstance3D:
 func _process(delta: float) -> void:
 	if dead:
 		return
-	var frac := clampf(hp / max_hp, 0.0, 1.0)
-	bar_fill.scale.x = frac
-	bar_mat.albedo_color = Color(1.0 - frac, frac, 0.2)
+	bar_fill.scale.x = clampf(hp / max_hp, 0.0, 1.0)
 	atk_cd -= delta
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()

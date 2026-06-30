@@ -43,7 +43,7 @@ func _process(delta: float) -> void:
 			ap.speed_scale = 1.0
 			if atk_cd <= 0.0:
 				atk_cd = ATK_CD
-				e.take_damage(DAMAGE)
+				_strike(e)
 		else:
 			_move_toward(e.global_position, delta)
 	else:
@@ -65,6 +65,16 @@ func _target() -> Enemy3D:
 	if Vector2(to_keep.x, to_keep.z).length() > LEASH:
 		return null
 	return e
+
+
+# damage lands partway through the swing, not the instant we're in range
+func _strike(e: Enemy3D) -> void:
+	var tgt := e
+	get_tree().create_timer(0.3).timeout.connect(func():
+		if is_instance_valid(tgt) and not tgt.dead:
+			var d := Vector2(tgt.global_position.x - global_position.x, tgt.global_position.z - global_position.z).length()
+			if d <= REACH + 0.6:
+				tgt.take_damage(DAMAGE))
 
 
 func _move_toward(p: Vector3, delta: float) -> void:
