@@ -82,6 +82,10 @@ var enemies_alive := 0
 var wave_cd := 0.0            # cooldown before the next wave can be launched
 var hero_atk_cd := 0.0
 var game_over := false
+var shake_t := 0.0          # camera-shake time remaining
+var shake_amt := 0.0        # camera-shake amplitude
+var keep_fx_cd := 0.0       # throttle for keep-hit shake/flash during a siege
+var hurt_flash: ColorRect   # red full-screen flash when the Keep is hit
 var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
@@ -240,6 +244,12 @@ func _find_mesh(n: Node) -> MeshInstance3D:
 func _build_touch_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	# red screen flash for when the Keep takes damage (sits behind the controls)
+	hurt_flash = ColorRect.new()
+	hurt_flash.color = Color(0.8, 0.0, 0.0, 0.0)
+	hurt_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hurt_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(hurt_flash)
 	joystick = TouchJoystick.new()
 	layer.add_child(joystick)
 
@@ -405,9 +415,16 @@ func _process(delta: float) -> void:
 	keep_bar_fill.scale.x = kf
 	keep_bar_fill.position.x = -KEEP_BAR_W * 0.5 * (1.0 - kf)
 
-	# smooth follow camera
+	# smooth follow camera (+ decaying shake offset)
+	if keep_fx_cd > 0.0:
+		keep_fx_cd -= delta
+	var shake := Vector3.ZERO
+	if shake_t > 0.0:
+		shake_t -= delta
+		var s := shake_amt * clampf(shake_t / SHAKE_DUR, 0.0, 1.0)
+		shake = Vector3(randf_range(-s, s), randf_range(-s, s), randf_range(-s, s))
 	var t := clampf(delta * 8.0, 0.0, 1.0)
-	cam.position = cam.position.lerp(hero.position + CAM_OFFSET, t)
+	cam.position = cam.position.lerp(hero.position + CAM_OFFSET, t) + shake
 	cam.look_at(hero.position + CAM_LOOK, Vector3.UP)
 
 
@@ -452,9 +469,66 @@ func claim_drop(from: Vector3) -> ResourceDrop3D:
 	return best
 
 
+const SHAKE_DUR := 0.3
+
+
+func _camera_shake(amp: float) -> void:
+	shake_amt = maxf(shake_amt * clampf(shake_t / SHAKE_DUR, 0.0, 1.0), amp)
+	shake_t = SHAKE_DUR
+
+
+# Floating world-space number (e.g. damage), rises and fades, then frees itself.
+func _popup(pos: Vector3, text: String, col: Color) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.position = pos
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.fixed_size = true
+	l.pixel_size = 0.0075
+	l.font_size = 64
+	l.outline_size = 12
+	l.modulate = col
+	add_child(l)
+	var tw := create_tween()
+	tw.tween_property(l, "position:y", pos.y + 1.3, 0.7)
+	tw.parallel().tween_property(l, "modulate:a", 0.0, 0.7)
+	tw.chain().tween_callback(l.queue_free)
+
+
+# One-shot burst of little cubes (dust/chips), auto-freed after its lifetime.
+func _puff(pos: Vector3, col: Color, count := 8, speed := 2.5) -> void:
+	var p := CPUParticles3D.new()
+	p.position = pos
+	p.emitting = true
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = count
+	p.lifetime = 0.5
+	p.direction = Vector3(0, 1, 0)
+	p.spread = 65.0
+	p.initial_velocity_min = speed * 0.4
+	p.initial_velocity_max = speed
+	p.gravity = Vector3(0, -7.0, 0)
+	p.scale_amount_min = 0.07
+	p.scale_amount_max = 0.16
+	var bm := BoxMesh.new()
+	bm.size = Vector3.ONE
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bm.material = mat
+	p.mesh = bm
+	add_child(p)
+	get_tree().create_timer(p.lifetime + 0.3).timeout.connect(p.queue_free)
+
+
 func _gain_gold(amt: int) -> void:
 	gold += amt
 	lbl_gold.text = "Gold: %d" % gold
+	# brief brighten so the counter "pops" when it changes
+	lbl_gold.modulate = Color(1.7, 1.7, 1.3)
+	create_tween().tween_property(lbl_gold, "modulate", Color.WHITE, 0.25)
 
 
 func worker_deposit(amt: int) -> void:
@@ -603,9 +677,13 @@ func _hero_swing(origin: Vector3, fwd: Vector3) -> void:
 		for e in get_tree().get_nodes_in_group("enemies"):
 			var en := e as Enemy3D
 			if not en.dead and _cone_overlaps(origin, fwd, en.global_position):
-				en.take_damage(HERO_DMG)
+				en.take_damage(HERO_DMG, origin)
+				_popup(en.global_position + Vector3(0, 2.0, 0), str(int(HERO_DMG)), Color(1, 0.95, 0.5))
 		for n in resource_nodes:
 			if not n.depleted and _cone_overlaps(origin, fwd, n.global_position, n.hit_radius()):
+				# wood chips / stone shards fly off as we chop
+				var chip := Color(0.55, 0.36, 0.18) if n.ntype != "rock" else Color(0.55, 0.57, 0.6)
+				_puff(n.global_position + Vector3(0, 0.8, 0), chip, 6, 2.0)
 				if n.work(HERO_ATK_CD):   # each swing advances felling by one attack interval
 					spawn_drop(n.global_position, n.yield_amt, n.ntype))
 
@@ -629,6 +707,12 @@ func damage_keep(amt: float) -> void:
 		return
 	keep_hp -= amt
 	lbl_keep.text = "Keep: %d" % maxi(0, int(keep_hp))
+	# throttled shake + red flash so a heavy siege doesn't shake constantly
+	if keep_fx_cd <= 0.0:
+		keep_fx_cd = 0.35
+		_camera_shake(0.18)
+		hurt_flash.color.a = 0.22
+		create_tween().tween_property(hurt_flash, "color:a", 0.0, 0.45)
 	if keep_hp <= 0.0:
 		_end_game(false)
 

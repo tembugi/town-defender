@@ -78,7 +78,7 @@ func _strike(e: Enemy3D) -> void:
 		if is_instance_valid(tgt) and not tgt.dead:
 			var d := Vector2(tgt.global_position.x - global_position.x, tgt.global_position.z - global_position.z).length()
 			if d <= REACH + 0.6:
-				tgt.take_damage(DAMAGE))
+				tgt.take_damage(DAMAGE, global_position))
 
 
 func _move_toward(p: Vector3, _delta: float) -> void:

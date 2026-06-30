@@ -175,6 +175,31 @@ static func attach_weapon(model: Node, kind := "sword", bone := "handslot.r") ->
 	ba.add_child(make_weapon(kind))
 
 
+# Brief full-body colour flash via a material overlay (e.g. red when hit).
+static func flash(host: Node, model: Node, col := Color(1, 1, 1)) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(col.r, col.g, col.b, 0.85)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var meshes: Array = []
+	_collect_meshes(model, meshes)
+	for m in meshes:
+		(m as GeometryInstance3D).material_overlay = mat
+	var tw := host.create_tween()
+	tw.tween_property(mat, "albedo_color:a", 0.0, 0.14)
+	tw.tween_callback(func():
+		for m in meshes:
+			if is_instance_valid(m):
+				(m as GeometryInstance3D).material_overlay = null)
+
+
+static func _collect_meshes(n: Node, out: Array) -> void:
+	if n is MeshInstance3D:
+		out.append(n)
+	for c in n.get_children():
+		_collect_meshes(c, out)
+
+
 static func _find_skeleton(n: Node) -> Skeleton3D:
 	if n is Skeleton3D:
 		return n

@@ -32,6 +32,9 @@ var bar_fill: MeshInstance3D
 var hit_t := 0.0          # >0 while showing a flinch reaction
 var hit_clip := "Hit_A"
 var spawn_t := 0.0        # >0 while rising from the ground (no acting yet)
+var knockback := Vector3.ZERO   # decaying impulse pushing us back when hit
+const KB_FORCE := 3.2
+const KB_DECAY := 14.0
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -100,6 +103,9 @@ func _physics_process(delta: float) -> void:
 		var steer := seek + sep * SEP_WEIGHT + tangent * (block * TANGENT_WEIGHT)
 		var target := (steer.normalized() if steer.length() > 0.05 else seek) * speed
 		velocity = velocity.lerp(target, 0.3)   # smooth so direction changes don't buzz
+	# decaying knockback rides on top of whatever steering produced
+	knockback = knockback.move_toward(Vector3.ZERO, KB_DECAY * delta)
+	velocity += knockback
 	move_and_slide()
 	_face(game.keep_pos)
 	# damage the Keep on cadence regardless of the displayed clip
@@ -137,14 +143,20 @@ func _separation() -> Vector3:
 	return sep
 
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, from := Vector3.INF) -> void:
 	if dead:
 		return
 	hp -= amount
+	Rig.flash(self, model, Color(1, 0.35, 0.35))   # red hit flash
+	if from.is_finite():
+		var dir: Vector3 = global_position - from
+		dir.y = 0.0
+		if dir.length() > 0.01:
+			knockback = dir.normalized() * KB_FORCE
 	if hp <= 0.0:
 		_die()
 		return
-	# brief flinch (skip while attacking the Keep so it keeps swinging)
+	# brief flinch
 	hit_clip = "Hit_A" if randf() < 0.5 else "Hit_B"
 	hit_t = 0.16
 	anim = ""   # force the flinch clip to restart even if already showing
@@ -157,6 +169,7 @@ func _die() -> void:
 	collision_mask = 0
 	remove_from_group("enemies")   # also drops out of others' separation checks
 	died.emit(reward, global_position)
+	game._puff(global_position + Vector3(0, 0.4, 0), Color(0.5, 0.5, 0.55), 10, 2.2)   # dust burst
 	_play("Death_A" if randf() < 0.5 else "Death_B")
 	ap.speed_scale = 1.0
 	# body lies on the ground, then sinks away and frees itself after a delay
