@@ -35,7 +35,7 @@ const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gl
 const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
 const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
-const HERO_ATK_RANGE := 2.6
+const HERO_ATK_RANGE := 1.8
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
 const KEEP_MAX := 1500.0
@@ -64,6 +64,7 @@ var btn_hire: Button
 
 # combat / waves
 var keep_node: Node3D
+var _enemy_slot := 0   # increments per spawned enemy, fans them around the Keep
 var keep_hp := KEEP_MAX
 var keep_bar_fill: MeshInstance3D
 const KEEP_BAR_W := 1.8
@@ -166,8 +167,8 @@ func _build_world() -> void:
 	var kb := Node3D.new()
 	kb.position = Vector3(0, 4.6, 0)
 	keep_node.add_child(kb)
-	kb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), KEEP_BAR_W))
-	keep_bar_fill = Rig.bar_quad(Color(0.45, 0.8, 1.0, 1.0), KEEP_BAR_W)
+	kb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), KEEP_BAR_W, 0))
+	keep_bar_fill = Rig.bar_quad(Color(0.45, 0.8, 1.0, 1.0), KEEP_BAR_W, 1)
 	keep_bar_fill.position.z = 0.01
 	kb.add_child(keep_bar_fill)
 
@@ -343,7 +344,10 @@ func _process(delta: float) -> void:
 				var tgt := enemy
 				get_tree().create_timer(0.25).timeout.connect(func():
 					if is_instance_valid(tgt) and not tgt.dead:
-						tgt.take_damage(HERO_DMG))
+						# only land the hit if the enemy is still in reach
+						var d := Vector2(tgt.global_position.x - hero.position.x, tgt.global_position.z - hero.position.z).length()
+						if d <= HERO_ATK_RANGE + 0.4:
+							tgt.take_damage(HERO_DMG))
 		else:
 			var pad := nearest_pad(hero.position, BUILD_RANGE)
 			if pad != null and gold >= pad.cost:
@@ -578,6 +582,10 @@ func _update_waves(delta: float) -> void:
 func _spawn_enemy(cfg: Dictionary, pos: Vector3) -> void:
 	var e := Enemy3D.new()
 	e.position = pos
+	# golden-angle spacing fans successive raiders around the Keep instead of
+	# funnelling them all onto one point (which made them queue single-file)
+	cfg["anchor_angle"] = _enemy_slot * 2.39996323
+	_enemy_slot += 1
 	add_child(e)
 	e.setup(self, cfg)
 	e.died.connect(_on_enemy_died)

@@ -51,7 +51,7 @@ static func attach(character: Node, source := "adventurer") -> AnimationPlayer:
 
 # A camera-facing quad for HP bars (keeps scale so the fill can shrink).
 # Opaque so overlapping bars never alpha-blend into a darker shade.
-static func bar_quad(col: Color, width := 0.9) -> MeshInstance3D:
+static func bar_quad(col: Color, width := 0.9, priority := 0) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(width, 0.13)
@@ -62,6 +62,9 @@ static func bar_quad(col: Color, width := 0.9) -> MeshInstance3D:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.billboard_keep_scale = true
 	mat.no_depth_test = true
+	# both bars skip depth-testing, so without an explicit priority the fill and
+	# the black background fight for the same pixels (bar randomly goes black).
+	mat.render_priority = priority
 	m.material_override = mat
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return m

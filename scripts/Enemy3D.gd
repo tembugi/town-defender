@@ -8,6 +8,7 @@ const CHAR := "res://Models/enemies/Skeleton_Minion.glb"
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
 const ATTACK_RANGE := 2.2
+const RING := 1.9        # how far from the Keep centre this raider's attack slot sits
 
 signal died(reward: int, pos: Vector3)
 
@@ -25,6 +26,7 @@ var atk_cd := 0.0
 var dead := false
 var hpbar: Node3D
 var bar_fill: MeshInstance3D
+var anchor := Vector3.ZERO   # this raider's attack slot on the ring around the Keep
 
 
 func setup(g: Node, cfg: Dictionary) -> void:
@@ -34,6 +36,8 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	dmg = cfg.get("dmg", 6.0)
 	reward = cfg.get("reward", 5)
 	speed = cfg.get("speed", 1.6)
+	var a: float = cfg.get("anchor_angle", randf() * TAU)
+	anchor = game.keep_pos + Vector3(cos(a), 0, sin(a)) * RING
 	model = (load(CHAR) as PackedScene).instantiate()
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
@@ -52,8 +56,8 @@ func _make_hpbar() -> void:
 	hpbar = Node3D.new()
 	hpbar.position = Vector3(0, 1.6, 0)
 	add_child(hpbar)
-	hpbar.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W))   # background
-	bar_fill = Rig.bar_quad(Color(0.3, 0.9, 0.3, 1.0), BAR_W)
+	hpbar.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))   # background
+	bar_fill = Rig.bar_quad(Color(0.3, 0.9, 0.3, 1.0), BAR_W, 1)   # always on top
 	bar_fill.position.z = 0.01
 	hpbar.add_child(bar_fill)
 
@@ -75,7 +79,9 @@ func _physics_process(delta: float) -> void:
 			atk_cd = atk_interval
 			game.damage_keep(dmg)
 	else:
-		velocity = Vector3(to.x, 0, to.z).normalized() * speed
+		# steer toward this raider's own slot on the ring, not the shared centre
+		var ato: Vector3 = anchor - global_position
+		velocity = Vector3(ato.x, 0, ato.z).normalized() * speed
 		move_and_slide()
 		_face(game.keep_pos)
 		_play("Walking_C")
