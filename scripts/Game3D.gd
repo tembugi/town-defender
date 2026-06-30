@@ -31,6 +31,10 @@ const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
 const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 
+# the pack's buildings vary wildly in size; normalise them to proper buildings
+const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
+const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
+
 const HERO_ATK_RANGE := 2.6
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
@@ -155,6 +159,9 @@ func _build_world() -> void:
 	# central Keep + its always-on health bar
 	keep_node = (load(CASTLE) as PackedScene).instantiate()
 	add_child(keep_node)
+	var keep_blob := Rig.blob_shadow(1.5)
+	keep_blob.position.y = 0.03
+	keep_node.add_child(keep_blob)
 	var kb := Node3D.new()
 	kb.position = Vector3(0, 4.6, 0)
 	keep_node.add_child(kb)
@@ -447,12 +454,18 @@ func _construct(pad: BuildPad3D) -> void:
 	gold -= pad.cost
 	lbl_gold.text = "Gold: %d" % gold
 	pad.mark_built()
+	var bscale: float = BUILDING_SCALE.get(pad.btype, 1.0)
 	var b := (load(pad.building_path) as PackedScene).instantiate()
 	b.position = pad.position
 	add_child(b)
-	b.scale = Vector3.ONE * 0.3
+	b.scale = Vector3.ONE * bscale * 0.3
 	var tw := create_tween()
-	tw.tween_property(b, "scale", Vector3.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(b, "scale", Vector3.ONE * bscale, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# fake ground shadow under the building (not parented to b, so it isn't scaled)
+	var blob := Rig.blob_shadow(BUILDING_BLOB.get(pad.btype, 1.0))
+	blob.position = pad.position
+	blob.position.y = 0.03
+	add_child(blob)
 	match pad.btype:
 		"house":
 			worker_cap += 2
