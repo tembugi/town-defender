@@ -86,6 +86,8 @@ var shake_t := 0.0          # camera-shake time remaining
 var shake_amt := 0.0        # camera-shake amplitude
 var keep_fx_cd := 0.0       # throttle for keep-hit shake/flash during a siege
 var hurt_flash: ColorRect   # red full-screen flash when the Keep is hit
+var hud_keep_fill: ColorRect   # Town Hall HP bar fill in the HUD
+const KEEP_HUD_W := 240.0
 var lbl_keep: Label
 var lbl_wave: Label
 var lbl_soldiers: Label
@@ -255,8 +257,20 @@ func _build_touch_ui() -> void:
 
 	lbl_gold = _hud_label("Gold: %d" % gold, Vector2(22, 18), Color(1, 0.85, 0.25))
 	layer.add_child(lbl_gold)
-	lbl_keep = _hud_label("Keep: %d" % int(keep_hp), Vector2(22, 52), Color(0.7, 0.85, 1))
+	# Town Hall HP bar (background + fill + centered label)
+	var keep_bg := ColorRect.new()
+	keep_bg.color = Color(0, 0, 0, 0.55)
+	keep_bg.position = Vector2(22, 50)
+	keep_bg.size = Vector2(KEEP_HUD_W, 26)
+	layer.add_child(keep_bg)
+	hud_keep_fill = ColorRect.new()
+	hud_keep_fill.position = Vector2(22, 50)
+	hud_keep_fill.size = Vector2(KEEP_HUD_W, 26)
+	layer.add_child(hud_keep_fill)
+	lbl_keep = _hud_label("", Vector2(30, 51), Color(1, 1, 1))
+	lbl_keep.add_theme_font_size_override("font_size", 18)
 	layer.add_child(lbl_keep)
+	_update_keep_hud()
 	lbl_pop = _hud_label("Workers: 0/%d" % worker_cap, Vector2(22, 86), Color(0.8, 1, 0.8))
 	layer.add_child(lbl_pop)
 	lbl_soldiers = _hud_label("Soldiers: 0", Vector2(22, 120), Color(1, 0.8, 0.6))
@@ -470,6 +484,13 @@ func claim_drop(from: Vector3) -> ResourceDrop3D:
 
 
 const SHAKE_DUR := 0.3
+
+
+func _update_keep_hud() -> void:
+	var f := clampf(keep_hp / KEEP_MAX, 0.0, 1.0)
+	hud_keep_fill.size.x = KEEP_HUD_W * f
+	hud_keep_fill.color = Color(0.85, 0.3, 0.3).lerp(Color(0.4, 0.85, 0.45), f)   # red when low
+	lbl_keep.text = "Town Hall: %d / %d" % [maxi(0, int(keep_hp)), int(KEEP_MAX)]
 
 
 func _camera_shake(amp: float) -> void:
@@ -706,13 +727,13 @@ func damage_keep(amt: float) -> void:
 	if game_over:
 		return
 	keep_hp -= amt
-	lbl_keep.text = "Keep: %d" % maxi(0, int(keep_hp))
-	# throttled shake + red flash so a heavy siege doesn't shake constantly
+	_update_keep_hud()
+	# throttled subtle shake + faint red flash (kept gentle on purpose)
 	if keep_fx_cd <= 0.0:
-		keep_fx_cd = 0.35
-		_camera_shake(0.18)
-		hurt_flash.color.a = 0.22
-		create_tween().tween_property(hurt_flash, "color:a", 0.0, 0.45)
+		keep_fx_cd = 0.5
+		_camera_shake(0.05)
+		hurt_flash.color.a = 0.07
+		create_tween().tween_property(hurt_flash, "color:a", 0.0, 0.35)
 	if keep_hp <= 0.0:
 		_end_game(false)
 
