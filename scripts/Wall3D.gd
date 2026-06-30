@@ -4,11 +4,11 @@ extends StaticBody3D
 # A destructible barrier. Blocks enemy movement (so it funnels them); enemies that
 # are stopped by it attack it until it's destroyed. Built on a wall build pad.
 
-# Modular wall: native width is exactly one hex (2.0), so at scale 1.0 adjacent
-# hex-snapped walls butt together into one continuous battlement.
-const MODEL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
-const SCALE := 1.0
-const MAX_HP := 180.0
+# Stone fence: native length 1.15 runs along Z. We rotate it so the length runs
+# along X and scale it to one hex (2.0) so adjacent hex-snapped pieces join up.
+const MODEL := "res://Models/hexagon/buildings/neutral/fence_stone_straight.gltf"
+const SCALE := 1.74           # 1.15 * 1.74 ~= 2.0 (one hex)
+const MAX_HP := 140.0
 const BAR_W := 1.3
 
 var game: Node
@@ -23,18 +23,20 @@ func setup(g: Node) -> void:
 	collision_mask = 0
 	var b := (load(MODEL) as PackedScene).instantiate()
 	b.scale = Vector3.ONE * SCALE
+	b.rotation.y = PI * 0.5      # run the fence length along X (tiles along a row)
 	add_child(b)
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	# full hex width so adjacent walls' colliders meet (no gap for enemies)
-	box.size = Vector3(2.0, 1.2, 0.7)
+	# full hex length so adjacent fences' colliders meet (no gap), taller than the
+	# low mesh so it reliably blocks the units
+	box.size = Vector3(2.0, 1.0, 0.5)
 	cs.shape = box
-	cs.position.y = 0.6
+	cs.position.y = 0.5
 	add_child(cs)
-	add_child(Rig.blob_shadow(0.9))
+	add_child(Rig.blob_shadow(0.85))
 	# HP bar
 	var hb := Node3D.new()
-	hb.position = Vector3(0, 1.4, 0)
+	hb.position = Vector3(0, 0.95, 0)
 	add_child(hb)
 	hb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))
 	bar_fill = Rig.bar_quad(Color(0.75, 0.7, 0.45, 1.0), BAR_W, 1)

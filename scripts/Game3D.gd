@@ -34,7 +34,7 @@ const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
 const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 const TOWER := "res://Models/hexagon/buildings/blue/building_tower_A_blue.gltf"
-const WALL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
+const WALL := "res://Models/hexagon/buildings/neutral/fence_stone_straight.gltf"
 const TOWER_COST := 70
 const WALL_COST := 25
 
@@ -575,6 +575,8 @@ func _make_ghost(btype: String) -> Node3D:
 		gscale = Wall3D.SCALE
 	var g := (load(path) as PackedScene).instantiate()
 	g.scale = Vector3.ONE * gscale
+	if btype == "wall":
+		g.rotation.y = PI * 0.5   # match Wall3D's internal model rotation
 	ghost_mat = StandardMaterial3D.new()
 	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45)
 	ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -584,7 +586,10 @@ func _make_ghost(btype: String) -> Node3D:
 	for m in meshes:
 		(m as GeometryInstance3D).material_overlay = ghost_mat
 		(m as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return g
+	# wrap so the build-flip rotation composes on top of the internal model rotation
+	var root := Node3D.new()
+	root.add_child(g)
+	return root
 
 
 func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
