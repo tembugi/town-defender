@@ -29,6 +29,7 @@ func setup(g: Node, gpos: Vector3) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	ap = Rig.attach(model, "adventurer")
+	Rig.set_shadows(model, false)
 	_play("Idle_A")
 
 

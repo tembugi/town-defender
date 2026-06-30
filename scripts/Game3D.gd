@@ -61,6 +61,8 @@ var btn_hire: Button
 # combat / waves
 var keep_node: Node3D
 var keep_hp := KEEP_MAX
+var keep_bar_fill: MeshInstance3D
+const KEEP_BAR_W := 1.8
 var soldiers: Array[Soldier3D] = []
 var spawn_points: Array[Vector3] = []
 var wave := 0
@@ -79,6 +81,8 @@ var lbl_end: Label
 
 
 func _ready() -> void:
+	if OS.has_feature("web"):
+		get_viewport().scaling_3d_scale = 0.75   # render 3D at 75% on mobile/web -> big GPU win
 	_build_environment()
 	_build_world()
 	_build_pads()
@@ -150,9 +154,16 @@ func _build_world() -> void:
 	# playable bounds (slight inset)
 	field_rect = Rect2(ox + 1.0, oz + 1.0, (FIELD_COLS - 1) * HEX_W - 2.0, (FIELD_ROWS - 1) * HEX_V - 2.0)
 
-	# central Keep
+	# central Keep + its always-on health bar
 	keep_node = (load(CASTLE) as PackedScene).instantiate()
 	add_child(keep_node)
+	var kb := Node3D.new()
+	kb.position = Vector3(0, 4.6, 0)
+	keep_node.add_child(kb)
+	kb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), KEEP_BAR_W))
+	keep_bar_fill = Rig.bar_quad(Color(0.45, 0.8, 1.0, 1.0), KEEP_BAR_W)
+	keep_bar_fill.position.z = 0.01
+	kb.add_child(keep_bar_fill)
 
 	# enemy spawn points at the field edges
 	var r := field_rect
@@ -352,6 +363,11 @@ func _process(delta: float) -> void:
 			_gain_gold(workshops * 3)
 
 	_update_waves(delta)
+
+	# keep health bar (always visible, empties right to left)
+	var kf := clampf(keep_hp / KEEP_MAX, 0.0, 1.0)
+	keep_bar_fill.scale.x = kf
+	keep_bar_fill.position.x = -KEEP_BAR_W * 0.5 * (1.0 - kf)
 
 	# smooth follow camera
 	var t := clampf(delta * 8.0, 0.0, 1.0)

@@ -38,41 +38,30 @@ func setup(g: Node, cfg: Dictionary) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	ap = Rig.attach(model, "skeleton")
+	Rig.set_shadows(model, false)   # perf: skeletons don't cast shadows
 	_play("Idle_A")
 	add_to_group("enemies")
 	_make_hpbar()
 
 
+const BAR_W := 0.9
+
 func _make_hpbar() -> void:
 	hpbar = Node3D.new()
 	hpbar.position = Vector3(0, 1.6, 0)
 	add_child(hpbar)
-	hpbar.add_child(_bar_quad(Color(0, 0, 0, 0.6)))   # background
-	bar_fill = _bar_quad(Color(0.3, 0.9, 0.3, 1.0))
+	hpbar.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W))   # background
+	bar_fill = Rig.bar_quad(Color(0.3, 0.9, 0.3, 1.0), BAR_W)
 	bar_fill.position.z = 0.01
 	hpbar.add_child(bar_fill)
-
-
-func _bar_quad(col: Color) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(0.9, 0.13)
-	m.mesh = q
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.billboard_keep_scale = true   # so scaling the fill actually shrinks it
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.no_depth_test = true
-	m.material_override = mat
-	return m
 
 
 func _process(delta: float) -> void:
 	if dead:
 		return
-	bar_fill.scale.x = clampf(hp / max_hp, 0.0, 1.0)
+	var frac := clampf(hp / max_hp, 0.0, 1.0)
+	bar_fill.scale.x = frac
+	bar_fill.position.x = -BAR_W * 0.5 * (1.0 - frac)   # anchor left -> empties right to left
 	atk_cd -= delta
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()

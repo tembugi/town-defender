@@ -32,6 +32,7 @@ func setup(type: String) -> void:
 	model.scale = Vector3.ONE * BASE_SCALE
 	model.rotation.y = randf() * TAU
 	add_child(model)
+	Rig.set_shadows(model, false)   # perf: many props, skip their shadows
 
 
 func work(delta: float) -> bool:

@@ -27,6 +27,7 @@ func setup(g: Node) -> void:
 	model.scale = Vector3.ONE * CHAR_SCALE
 	add_child(model)
 	ap = Rig.attach(model)
+	Rig.set_shadows(model, false)
 	_play("Idle_A")
 
 
