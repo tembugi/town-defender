@@ -36,7 +36,7 @@ const BUILDING_SCALE := {"house": 2.3, "workshop": 1.9, "barracks": 1.4}
 const BUILDING_BLOB := {"house": 1.0, "workshop": 1.5, "barracks": 1.1}
 
 const HERO_ATK_RANGE := 1.5
-const HERO_ARC := deg_to_rad(75.0)   # frontal cone the swing actually hits
+const HERO_ARC := deg_to_rad(45.0)   # half-angle of the frontal cone the swing hits
 const HERO_DMG := 14.0
 const HERO_ATK_CD := 0.5
 const HERO_PICKUP := 1.1             # the player grabs resource piles within this

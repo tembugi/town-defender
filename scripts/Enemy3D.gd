@@ -8,8 +8,9 @@ const CHAR := "res://Models/enemies/Skeleton_Minion.glb"
 const CHAR_SCALE := 0.55
 const WALK_REF := 1.5
 const ATTACK_RANGE := 2.2
-const SEP_RADIUS := 1.4    # raiders push apart within this distance...
-const SEP_WEIGHT := 1.3    # ...strongly enough to flow around each other to open gaps
+const SEP_RADIUS := 1.4     # raiders push apart within this distance...
+const SEP_WEIGHT := 1.3     # ...strongly enough to flow around each other to open gaps
+const TANGENT_WEIGHT := 1.4 # sidestep force when a neighbour blocks the path to the Keep
 
 signal died(reward: int, pos: Vector3)
 
@@ -70,16 +71,22 @@ func _physics_process(delta: float) -> void:
 	var to: Vector3 = game.keep_pos - global_position
 	var dist := Vector2(to.x, to.z).length()
 	var in_range := dist <= ATTACK_RANGE
-	# Out of range: steer = pull toward the Keep + separation from neighbours, so
-	# raiders fan out into open gaps. In range: plant and attack (no steering), so
-	# a packed crowd with nowhere to go stops dead instead of jittering.
 	if in_range:
+		# plant and attack; a packed crowd with nowhere to go stops dead, not jitters
 		velocity = Vector3.ZERO
 	else:
-		var steer := Vector3(to.x, 0, to.z).normalized() + _separation() * SEP_WEIGHT
-		# deadzone: when the pull and the crowd pressure roughly cancel, hold still
-		# rather than vibrate back and forth on near-zero net force
-		velocity = steer.normalized() * speed if steer.length() > 0.3 else Vector3.ZERO
+		var seek := Vector3(to.x, 0, to.z).normalized()
+		var sep := _separation()
+		# when a neighbour sits directly between us and the Keep, sidestep around
+		# it (consistent rotational direction) instead of stopping behind it -> the
+		# crowd fans out and surrounds the Keep rather than forming a single file
+		var block := 0.0
+		if sep.length() > 0.01:
+			block = maxf(0.0, -sep.normalized().dot(seek))
+		var tangent := Vector3(-seek.z, 0.0, seek.x)
+		var steer := seek + sep * SEP_WEIGHT + tangent * (block * TANGENT_WEIGHT)
+		var target := (steer.normalized() if steer.length() > 0.05 else seek) * speed
+		velocity = velocity.lerp(target, 0.3)   # smooth so direction changes don't buzz
 	move_and_slide()
 	_face(game.keep_pos)
 	if in_range:
