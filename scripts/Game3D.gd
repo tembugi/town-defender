@@ -986,7 +986,14 @@ func _maybe_add_corner_cap(anchor: Vector3, from_wall: Wall3D, new_wall_pos: Vec
 	var cap := (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
 	cap.scale = Wall3D.MODEL_SCALE
 	cap.rotation.y = Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
-	cap.position = anchor
+	# The piece's two arms aren't a symmetric crossing: parsing its raw mesh
+	# vertices shows arm A (toward from_wall) is centred on local z=0 as expected,
+	# but arm B (the new wall's side) is centred on local x=+0.3, not 0 -- so its
+	# origin sits offset from the true corner vertex. Shift the piece back along
+	# its own (rotated) local +X so arm B's real centreline lands on the anchor.
+	const ARM_B_OFFSET := 0.3
+	var world_x := Vector3(1, 0, 0).rotated(Vector3.UP, cap.rotation.y)
+	cap.position = anchor - world_x * ARM_B_OFFSET * Wall3D.MODEL_SCALE.x
 	add_child(cap)
 
 
