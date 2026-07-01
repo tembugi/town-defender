@@ -143,7 +143,11 @@ var build_btype := ""
 var build_cost := 0
 var build_flip := 0.0          # yaw from the Flip button
 var ghost: Node3D              # translucent preview, dragged freely on the field
-var ghost_mat: StandardMaterial3D
+var ghost_mat: StandardMaterial3D    # single-mesh ghost (non-wall build types)
+var ghost_wall_mesh: Node3D          # wall ghost: the straight-segment piece (always present)
+var ghost_wall_mat: StandardMaterial3D
+var ghost_corner_mesh: Node3D        # wall ghost: the corner piece (only while a corner applies)
+var ghost_corner_mat: StandardMaterial3D
 var ghost_target := Vector3.ZERO   # raw (unsnapped) ground position the ghost is dragged to
 const WALL_SNAP_RADIUS := 1.1      # how close to an existing wall end counts as "attach here"
 const WALL_RELEASE_RADIUS := 3.0   # once attached, how far you can drag before letting go
@@ -509,8 +513,13 @@ func _enter_build_mode(btype: String, cost: int) -> void:
 func _exit_build_mode() -> void:
 	build_mode = false
 	if is_instance_valid(ghost):
-		ghost.queue_free()
+		ghost.queue_free()   # frees ghost_wall_mesh/ghost_corner_mesh too (its children)
 	ghost = null
+	ghost_wall_mesh = null
+	ghost_wall_mat = null
+	ghost_corner_mesh = null
+	ghost_corner_mat = null
+	ghost_mat = null
 	hero.cone.visible = true
 	joystick.visible = true
 	btn_build.visible = true
@@ -522,7 +531,9 @@ func _exit_build_mode() -> void:
 func _confirm_place() -> void:
 	# place exactly what the ghost is showing, so what you see is what you get
 	var exclude: Wall3D = wall_anchor_wall if build_btype == "wall" else null
-	if _place_building(build_btype, build_cost, ghost.position, ghost.rotation.y, exclude):
+	var pos: Vector3 = ghost_wall_mesh.position if build_btype == "wall" else ghost.position
+	var yaw: float = ghost_wall_mesh.rotation.y if build_btype == "wall" else ghost.rotation.y
+	if _place_building(build_btype, build_cost, pos, yaw, exclude):
 		if gold < build_cost:
 			_exit_build_mode()   # can't afford another -> leave placement mode
 
@@ -583,15 +594,75 @@ func _unhandled_input(event: InputEvent) -> void:
 func _update_ghost() -> void:
 	if ghost == null:
 		return
-	if build_btype == "wall" and wall_anchor != Vector3.INF:
-		var dir := Vector3(1, 0, 0).rotated(Vector3.UP, build_flip) * (Wall3D.LENGTH * 0.5)
-		ghost.position = wall_anchor + dir
+	var pos_check: Vector3
+	var exclude: Wall3D = null
+	if build_btype == "wall":
+		exclude = wall_anchor_wall
+		pos_check = _update_wall_ghost()
 	else:
 		ghost.position = ghost_target
-	ghost.rotation.y = build_flip
-	var exclude: Wall3D = wall_anchor_wall if build_btype == "wall" else null
-	var ok: bool = gold >= build_cost and _valid_build_spot(ghost.position, exclude)
-	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
+		ghost.rotation.y = build_flip
+		pos_check = ghost.position
+	var ok: bool = gold >= build_cost and _valid_build_spot(pos_check, exclude)
+	var col := Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
+	if build_btype == "wall":
+		ghost_wall_mat.albedo_color = col
+		if ghost_corner_mat != null:
+			ghost_corner_mat.albedo_color = col
+	else:
+		ghost_mat.albedo_color = col
+
+
+# Positions the wall ghost each frame; when the current angle forms a right-angle
+# corner with the wall it's snapped to, ALSO shows the corner piece live (pushing
+# the wall ghost further out to leave room for it), so you see the join before
+# you commit to it. Returns the position to run the build-validity check against.
+func _update_wall_ghost() -> Vector3:
+	var dir_b := Vector3(1, 0, 0).rotated(Vector3.UP, build_flip)
+	var layout := {}
+	if wall_anchor != Vector3.INF and wall_anchor_wall != null and is_instance_valid(wall_anchor_wall):
+		var dir_a: Vector3 = wall_anchor_wall.position - wall_anchor
+		dir_a.y = 0.0
+		if dir_a.length() > 0.01:
+			layout = _corner_layout(wall_anchor, dir_a.normalized(), dir_b)
+	if not layout.is_empty():
+		ghost_wall_mesh.position = layout["wall_pos"]
+		ghost_wall_mesh.rotation.y = build_flip
+		if ghost_corner_mesh == null:
+			ghost_corner_mesh = (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
+			ghost_corner_mesh.scale = Wall3D.MODEL_SCALE
+			ghost_corner_mat = _tint_ghost(ghost_corner_mesh)
+			ghost.add_child(ghost_corner_mesh)
+		ghost_corner_mesh.position = layout["corner_pos"]
+		ghost_corner_mesh.rotation.y = layout["corner_yaw"]
+		return layout["wall_pos"]
+	if ghost_corner_mesh != null:
+		ghost_corner_mesh.queue_free()
+		ghost_corner_mesh = null
+		ghost_corner_mat = null
+	var pos: Vector3 = (wall_anchor + dir_b * (Wall3D.LENGTH * 0.5)) if wall_anchor != Vector3.INF else ghost_target
+	ghost_wall_mesh.position = pos
+	ghost_wall_mesh.rotation.y = build_flip
+	return pos
+
+
+# Geometry for a right-angle wall corner, derived from the corner asset's own
+# measured reach (~1.0 units along each arm from its local origin -- it's a real
+# piece with its own footprint, not a zero-size decoration that slots invisibly
+# between two already-touching straight segments). Pushes the new wall further
+# out to leave room for the corner. Returns {} if dir_a/dir_b aren't a ~90deg
+# turn (a straight run, or an angle we don't support corners for).
+const CORNER_REACH := 1.0
+const CORNER_ANGLE_TOL := 20.0
+const WALL_CORNER_OUTSIDE := "res://Models/hexagon/buildings/neutral/wall_corner_A_outside.gltf"
+
+func _corner_layout(anchor: Vector3, dir_a: Vector3, dir_b: Vector3) -> Dictionary:
+	if absf(dir_a.angle_to(dir_b) - PI * 0.5) > deg_to_rad(CORNER_ANGLE_TOL):
+		return {}
+	var corner_pos := anchor - dir_a * CORNER_REACH
+	var corner_yaw := Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
+	var wall_pos := corner_pos + dir_b * (CORNER_REACH + Wall3D.LENGTH * 0.5)
+	return {"corner_pos": corner_pos, "corner_yaw": corner_yaw, "wall_pos": wall_pos}
 
 
 # Project a screen point onto the ground plane (y = 0).
@@ -618,26 +689,38 @@ func _nearest_wall_anchor(pos: Vector3) -> Dictionary:
 	return best
 
 
-# A translucent green/red preview of a structure (no collider, no logic).
+# A translucent green/red preview of a structure (no collider, no logic). Walls
+# are a container: _update_wall_ghost populates/repositions the straight-segment
+# piece (and, when a corner applies, the corner piece too) each frame, since they
+# sit at different world points rather than a single shared offset.
 func _make_ghost(btype: String) -> Node3D:
-	var path: String = {"house": HOME, "workshop": MARKET, "barracks": BARRACKS, "tower": TOWER, "wall": WALL}[btype]
-	var g := (load(path) as PackedScene).instantiate()
 	if btype == "wall":
-		g.scale = Wall3D.MODEL_SCALE
-	elif btype == "tower":
-		g.scale = Vector3.ONE * Tower3D.SCALE
-	else:
-		g.scale = Vector3.ONE * BUILDING_SCALE.get(btype, 1.0)
-	ghost_mat = StandardMaterial3D.new()
-	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45)
-	ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var root := Node3D.new()
+		ghost_wall_mesh = (load(WALL) as PackedScene).instantiate()
+		ghost_wall_mesh.scale = Wall3D.MODEL_SCALE
+		ghost_wall_mat = _tint_ghost(ghost_wall_mesh)
+		root.add_child(ghost_wall_mesh)
+		return root
+	var path: String = {"house": HOME, "workshop": MARKET, "barracks": BARRACKS, "tower": TOWER}[btype]
+	var g := (load(path) as PackedScene).instantiate()
+	g.scale = Vector3.ONE * (Tower3D.SCALE if btype == "tower" else BUILDING_SCALE.get(btype, 1.0))
+	ghost_mat = _tint_ghost(g)
+	return g
+
+
+# Tints a model's meshes translucent green (valid/affordable) or red (blocked),
+# via an overlay material that _update_ghost repaints each frame; returns it.
+func _tint_ghost(g: Node3D) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var meshes: Array = []
 	Rig._collect_meshes(g, meshes)
 	for m in meshes:
-		(m as GeometryInstance3D).material_overlay = ghost_mat
+		(m as GeometryInstance3D).material_overlay = mat
 		(m as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return g
+	return mat
 
 
 func _hud_label(text: String, pos: Vector2, col: Color) -> Label:
@@ -956,45 +1039,24 @@ func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0, exclude
 			w.setup(self)
 			walls.append(w)
 			_pop_in(w, 1.0)
-			if exclude_wall != null and wall_anchor != Vector3.INF:
-				_maybe_add_corner_cap(wall_anchor, exclude_wall, pos)
+			# a corner was previewed and confirmed -> drop the real (non-decorative
+			# in terms of gameplay, but still collision/HP-free) corner piece too,
+			# using the exact same layout math the ghost preview used
+			if exclude_wall != null and wall_anchor != Vector3.INF and is_instance_valid(exclude_wall):
+				var dir_a: Vector3 = exclude_wall.position - wall_anchor
+				dir_a.y = 0.0
+				if dir_a.length() > 0.01:
+					var dir_b := Vector3(1, 0, 0).rotated(Vector3.UP, yaw)
+					var layout := _corner_layout(wall_anchor, dir_a.normalized(), dir_b)
+					if not layout.is_empty():
+						var cap := (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
+						cap.scale = Wall3D.MODEL_SCALE
+						cap.position = layout["corner_pos"]
+						cap.rotation.y = layout["corner_yaw"]
+						add_child(cap)
 		_:
 			_make_building(btype, pos, yaw)
 	return true
-
-
-# Purely decorative L-piece dropped at a wall joint that turns a clean 90deg
-# corner, using the pack's dedicated corner asset (two straight segments butted
-# together at a right angle otherwise leave a visible notch, since the corner
-# geometry mitres their thickness in a way flat butt-ends can't). Only the two
-# regular Wall3D segments carry collision/HP; this is a visual overlay only, so
-# it can't affect pathing, targeting, or combat if the alignment isn't perfect.
-const WALL_CORNER_OUTSIDE := "res://Models/hexagon/buildings/neutral/wall_corner_A_outside.gltf"
-const CORNER_ANGLE_TOL := 20.0   # degrees of slack around 90 to still count as a corner
-
-func _maybe_add_corner_cap(anchor: Vector3, from_wall: Wall3D, new_wall_pos: Vector3) -> void:
-	var dir_a := from_wall.position - anchor
-	var dir_b := new_wall_pos - anchor
-	dir_a.y = 0.0
-	dir_b.y = 0.0
-	if dir_a.length() < 0.01 or dir_b.length() < 0.01:
-		return
-	dir_a = dir_a.normalized()
-	dir_b = dir_b.normalized()
-	if absf(dir_a.angle_to(dir_b) - PI * 0.5) > deg_to_rad(CORNER_ANGLE_TOL):
-		return   # not a right-angle turn (straight run, or an off-grid angle) -> leave the plain joint
-	var cap := (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
-	cap.scale = Wall3D.MODEL_SCALE
-	cap.rotation.y = Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
-	# The piece's two arms aren't a symmetric crossing: parsing its raw mesh
-	# vertices shows arm A (toward from_wall) is centred on local z=0 as expected,
-	# but arm B (the new wall's side) is centred on local x=+0.3, not 0 -- so its
-	# origin sits offset from the true corner vertex. Shift the piece back along
-	# its own (rotated) local +X so arm B's real centreline lands on the anchor.
-	const ARM_B_OFFSET := 0.3
-	var world_x := Vector3(1, 0, 0).rotated(Vector3.UP, cap.rotation.y)
-	cap.position = anchor - world_x * ARM_B_OFFSET * Wall3D.MODEL_SCALE.x
-	add_child(cap)
 
 
 func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
