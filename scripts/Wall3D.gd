@@ -9,10 +9,18 @@ extends StaticBody3D
 # tree height (~1.8) without distorting the width/tiling.
 const MODEL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
 const MODEL_SCALE := Vector3(1.0, 1.63, 1.0)
+const LENGTH := 2.0            # world length of one segment, along its local +X
 const MAX_HP := 180.0
 const BAR_W := 1.5
 
 const BAR_COLOR := Color(0.75, 0.7, 0.45, 1.0)
+
+
+# The two end points of a wall segment at `pos`/`yaw` (not placed yet), used to
+# snap a new segment flush against an existing one.
+static func endpoints(pos: Vector3, yaw: float) -> Array:
+	var dir := Vector3(1, 0, 0).rotated(Vector3.UP, yaw) * (LENGTH * 0.5)
+	return [pos + dir, pos - dir]
 
 var game: Node
 var hp := MAX_HP

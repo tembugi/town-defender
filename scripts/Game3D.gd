@@ -21,8 +21,6 @@ const HEX_W := 2.0
 const HEX_V := 1.732
 const FIELD_COLS := 13
 const FIELD_ROWS := 11
-const GRID_OX := -(FIELD_COLS - 1) * HEX_W * 0.5
-const GRID_OZ := -(FIELD_ROWS - 1) * HEX_V * 0.5
 
 const HEX_GRASS := "res://Models/hexagon/tiles/base/hex_grass.gltf"
 const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
@@ -144,9 +142,12 @@ var build_mode := false
 var build_btype := ""
 var build_cost := 0
 var build_flip := 0.0          # yaw from the Flip button
-var ghost: Node3D              # translucent preview, dragged on the hex grid
+var ghost: Node3D              # translucent preview, dragged freely on the field
 var ghost_mat: StandardMaterial3D
-var ghost_target := Vector3.ZERO   # snapped hex cell the ghost sits on
+var ghost_target := Vector3.ZERO   # raw (unsnapped) ground position the ghost is dragged to
+const WALL_SNAP_RADIUS := 1.1      # how close to an existing wall end counts as "attach here"
+var wall_anchor := Vector3.INF     # wall-only: end point of a neighbouring wall to attach to
+var wall_anchor_wall: Wall3D = null   # ...and which wall that end point belongs to
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
 var overlay: ColorRect
 var lbl_end: Label
@@ -375,7 +376,7 @@ func _build_touch_ui() -> void:
 	btn_place.visible = false
 	layer.add_child(btn_place)
 	btn_flip = _hud_button("FLIP", -160 - 130, Color(0.45, 0.55, 0.7), true)
-	btn_flip.pressed.connect(func(): build_flip = fmod(build_flip + PI * 0.5, TAU))
+	btn_flip.pressed.connect(func(): build_flip = fmod(build_flip + PI * 0.25, TAU))
 	btn_flip.visible = false
 	layer.add_child(btn_flip)
 	btn_cancel = _hud_button("CANCEL", -160 - 260, Color(0.7, 0.4, 0.4), true)
@@ -488,7 +489,9 @@ func _enter_build_mode(btype: String, cost: int) -> void:
 	build_btype = btype
 	build_cost = cost
 	build_flip = 0.0
-	ghost_target = _snap_to_hex(hero.position + _hero_forward() * 2.0)   # start near the hero
+	ghost_target = hero.position + _hero_forward() * 2.0   # start near the hero, freely placed
+	wall_anchor = Vector3.INF
+	wall_anchor_wall = null
 	ghost = _make_ghost(btype)
 	add_child(ghost)
 	hero.cone.visible = false        # the ghost replaces the attack cone while building
@@ -512,12 +515,14 @@ func _exit_build_mode() -> void:
 
 
 func _confirm_place() -> void:
-	if _place_building(build_btype, build_cost, ghost_target, build_flip):
+	# place exactly what the ghost is showing, so what you see is what you get
+	var exclude: Wall3D = wall_anchor_wall if build_btype == "wall" else null
+	if _place_building(build_btype, build_cost, ghost.position, ghost.rotation.y, exclude):
 		if gold < build_cost:
 			_exit_build_mode()   # can't afford another -> leave placement mode
 
 
-# Drag anywhere on the field (in build mode) to move the ghost; it snaps to a hex.
+# Drag anywhere on the field (in build mode) to move the ghost -- freely, no grid.
 func _unhandled_input(event: InputEvent) -> void:
 	if not build_mode:
 		return
@@ -530,18 +535,41 @@ func _unhandled_input(event: InputEvent) -> void:
 		sp = (event as InputEventMouseMotion).position
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		sp = (event as InputEventMouseButton).position
-	if sp != Vector2.INF:
-		var g := _screen_to_ground(sp)
-		if g != Vector3.INF:
-			ghost_target = _snap_to_hex(g)
+	if sp == Vector2.INF:
+		return
+	var g := _screen_to_ground(sp)
+	if g == Vector3.INF:
+		return
+	ghost_target = g
+	if build_btype != "wall":
+		return
+	# walls magnet-snap to the nearest end of an existing wall so segments join
+	# with zero gap, in whatever direction you like (not tied to any grid)
+	var anchor := _nearest_wall_anchor(g)
+	if anchor.is_empty():
+		wall_anchor = Vector3.INF
+		wall_anchor_wall = null
+	elif anchor["wall"] != wall_anchor_wall:
+		# newly acquired (or switched to a different neighbour): default to
+		# continuing that wall's own direction; Flip still adjusts it from here
+		wall_anchor = anchor["pos"]
+		wall_anchor_wall = anchor["wall"]
+		build_flip = anchor["yaw"]
+	else:
+		wall_anchor = anchor["pos"]
 
 
 func _update_ghost() -> void:
 	if ghost == null:
 		return
-	ghost.position = ghost_target
+	if build_btype == "wall" and wall_anchor != Vector3.INF:
+		var dir := Vector3(1, 0, 0).rotated(Vector3.UP, build_flip) * (Wall3D.LENGTH * 0.5)
+		ghost.position = wall_anchor + dir
+	else:
+		ghost.position = ghost_target
 	ghost.rotation.y = build_flip
-	var ok: bool = gold >= build_cost and _valid_build_spot(ghost_target)
+	var exclude: Wall3D = wall_anchor_wall if build_btype == "wall" else null
+	var ok: bool = gold >= build_cost and _valid_build_spot(ghost.position, exclude)
 	ghost_mat.albedo_color = Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
 
 
@@ -554,11 +582,19 @@ func _screen_to_ground(screen: Vector2) -> Vector3:
 	return from + dir * (-from.y / dir.y)
 
 
-# Snap a world position to the nearest hex-cell centre (matches _build_world).
-func _snap_to_hex(p: Vector3) -> Vector3:
-	var r := clampi(roundi((p.z - GRID_OZ) / HEX_V), 0, FIELD_ROWS - 1)
-	var q := clampi(roundi((p.x - GRID_OX - 0.5 * (r & 1) * HEX_W) / HEX_W), 0, FIELD_COLS - 1)
-	return Vector3(HEX_W * (q + 0.5 * (r & 1)) + GRID_OX, 0.0, HEX_V * r + GRID_OZ)
+# Nearest end point of any existing wall within WALL_SNAP_RADIUS of `pos`.
+func _nearest_wall_anchor(pos: Vector3) -> Dictionary:
+	var best := {}
+	var bestd := WALL_SNAP_RADIUS
+	for w in walls:
+		if not is_instance_valid(w) or w.dead:
+			continue
+		for ep in Wall3D.endpoints(w.position, w.rotation.y):
+			var d: float = Vector2(pos.x - ep.x, pos.z - ep.z).length()
+			if d < bestd:
+				bestd = d
+				best = {"pos": ep, "yaw": w.rotation.y, "wall": w}
+	return best
 
 
 # A translucent green/red preview of a structure (no collider, no logic).
@@ -867,14 +903,15 @@ func hire_worker() -> void:
 # ---------------------------------------------------------------------------
 # Build system
 # ---------------------------------------------------------------------------
-# Free placement: drops the chosen structure just in front of the hero, oriented
-# to the hero's facing (so walls can run any direction), if the spot is clear.
-func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0) -> bool:
+# Free placement: drops the chosen structure wherever the ghost was left (no
+# grid). `exclude_wall` lets a wall ignore its own snap-neighbour in the overlap
+# check, since a properly attached pair sits exactly LENGTH apart, not overlapping.
+func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0, exclude_wall: Wall3D = null) -> bool:
 	_ensure_music()
 	if game_over or gold < cost:
 		return false
 	pos.y = 0.0
-	if not _valid_build_spot(pos):
+	if not _valid_build_spot(pos, exclude_wall):
 		_popup(pos + Vector3(0, 2.2, 0), "Blocked", Color(1, 0.5, 0.4))
 		Sfx.play("click", -6.0, 0.1, 2)
 		return false
@@ -936,7 +973,7 @@ func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
 			build_pads.append(tp)
 
 
-func _valid_build_spot(pos: Vector3) -> bool:
+func _valid_build_spot(pos: Vector3, exclude_wall: Wall3D = null) -> bool:
 	var r := field_rect
 	if pos.x < r.position.x + 0.5 or pos.x > r.end.x - 0.5 or pos.z < r.position.y + 0.5 or pos.z > r.end.y - 0.5:
 		return false
@@ -949,6 +986,8 @@ func _valid_build_spot(pos: Vector3) -> bool:
 		if is_instance_valid(t) and Vector2(pos.x - t.position.x, pos.z - t.position.z).length() < 1.9:
 			return false
 	for w in walls:
+		if w == exclude_wall:
+			continue   # the wall we're intentionally attaching to (sits ~LENGTH away, not overlapping)
 		if is_instance_valid(w) and Vector2(pos.x - w.position.x, pos.z - w.position.z).length() < 1.4:
 			return false
 	for bd in buildings:
