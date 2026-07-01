@@ -659,8 +659,23 @@ const WALL_CORNER_OUTSIDE := "res://Models/hexagon/buildings/neutral/wall_corner
 func _corner_layout(anchor: Vector3, dir_a: Vector3, dir_b: Vector3) -> Dictionary:
 	if absf(dir_a.angle_to(dir_b) - PI * 0.5) > deg_to_rad(CORNER_ANGLE_TOL):
 		return {}
+	# The corner piece's two local arms -- (-1,0,0) and (0,0,-1) -- have a FIXED
+	# handedness (arm (0,0,-1) always sits at a signed -90deg from arm (-1,0,0);
+	# rotating the whole piece can't change that, only mirroring could, and
+	# mirroring via negative scale would flip its face winding and risk the mesh
+	# disappearing to backface culling). A wall can turn either clockwise or
+	# counter-clockwise from the one it's attached to, but only ONE of those
+	# senses matches the piece's own fixed handedness -- so for the other sense,
+	# swap which local arm plays "attached to dir_a" vs "extends toward dir_b"
+	# instead of trying to force a single fixed assignment to fit both.
+	var arm_to_a := Vector3(-1, 0, 0)
+	var arm_to_b := Vector3(0, 0, -1)
+	if dir_a.signed_angle_to(dir_b, Vector3.UP) > 0.0:
+		var tmp := arm_to_a
+		arm_to_a = arm_to_b
+		arm_to_b = tmp
 	var corner_pos := anchor - dir_a * CORNER_REACH
-	var corner_yaw := Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
+	var corner_yaw := arm_to_a.signed_angle_to(dir_a, Vector3.UP)
 	var wall_pos := corner_pos + dir_b * (CORNER_REACH + Wall3D.LENGTH * 0.5)
 	return {"corner_pos": corner_pos, "corner_yaw": corner_yaw, "wall_pos": wall_pos}
 
