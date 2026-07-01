@@ -935,9 +935,38 @@ func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0, exclude
 			w.setup(self)
 			walls.append(w)
 			_pop_in(w, 1.0)
+			if exclude_wall != null and wall_anchor != Vector3.INF:
+				_maybe_add_corner_cap(wall_anchor, exclude_wall, pos)
 		_:
 			_make_building(btype, pos, yaw)
 	return true
+
+
+# Purely decorative L-piece dropped at a wall joint that turns a clean 90deg
+# corner, using the pack's dedicated corner asset (two straight segments butted
+# together at a right angle otherwise leave a visible notch, since the corner
+# geometry mitres their thickness in a way flat butt-ends can't). Only the two
+# regular Wall3D segments carry collision/HP; this is a visual overlay only, so
+# it can't affect pathing, targeting, or combat if the alignment isn't perfect.
+const WALL_CORNER_OUTSIDE := "res://Models/hexagon/buildings/neutral/wall_corner_A_outside.gltf"
+const CORNER_ANGLE_TOL := 20.0   # degrees of slack around 90 to still count as a corner
+
+func _maybe_add_corner_cap(anchor: Vector3, from_wall: Wall3D, new_wall_pos: Vector3) -> void:
+	var dir_a := from_wall.position - anchor
+	var dir_b := new_wall_pos - anchor
+	dir_a.y = 0.0
+	dir_b.y = 0.0
+	if dir_a.length() < 0.01 or dir_b.length() < 0.01:
+		return
+	dir_a = dir_a.normalized()
+	dir_b = dir_b.normalized()
+	if absf(dir_a.angle_to(dir_b) - PI * 0.5) > deg_to_rad(CORNER_ANGLE_TOL):
+		return   # not a right-angle turn (straight run, or an off-grid angle) -> leave the plain joint
+	var cap := (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
+	cap.scale = Wall3D.MODEL_SCALE
+	cap.rotation.y = Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
+	cap.position = anchor
+	add_child(cap)
 
 
 func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
