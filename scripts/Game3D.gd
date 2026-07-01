@@ -146,6 +146,7 @@ var ghost: Node3D              # translucent preview, dragged freely on the fiel
 var ghost_mat: StandardMaterial3D
 var ghost_target := Vector3.ZERO   # raw (unsnapped) ground position the ghost is dragged to
 const WALL_SNAP_RADIUS := 1.1      # how close to an existing wall end counts as "attach here"
+const WALL_RELEASE_RADIUS := 3.0   # once attached, how far you can drag before letting go
 var wall_anchor := Vector3.INF     # wall-only: end point of a neighbouring wall to attach to
 var wall_anchor_wall: Wall3D = null   # ...and which wall that end point belongs to
 var wave_cd_fill: ColorRect   # dark overlay that shrinks as the cooldown ticks down
@@ -540,6 +541,23 @@ func _unhandled_input(event: InputEvent) -> void:
 	var g := _screen_to_ground(sp)
 	if g == Vector3.INF:
 		return
+	if build_btype == "wall" and wall_anchor != Vector3.INF:
+		# already locked onto a neighbour's end: further dragging ROTATES the new
+		# segment around that fixed point (drag in an arc to pick the corner
+		# angle) instead of re-scanning for a neighbour by raw drag position --
+		# otherwise a finger drifting even slightly past the tight snap radius
+		# used for acquisition would silently drop the anchor and fall back to
+		# free placement wherever the finger happened to be (often right on top
+		# of the wall you were trying to corner off of).
+		var to_drag := g - wall_anchor
+		to_drag.y = 0.0
+		if to_drag.length() > WALL_RELEASE_RADIUS:
+			wall_anchor = Vector3.INF
+			wall_anchor_wall = null
+			ghost_target = g
+			return
+		build_flip = snappedf(Vector3(1, 0, 0).signed_angle_to(to_drag, Vector3.UP), PI * 0.25)
+		return
 	ghost_target = g
 	if build_btype != "wall":
 		return
@@ -549,14 +567,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if anchor.is_empty():
 		wall_anchor = Vector3.INF
 		wall_anchor_wall = null
-	elif anchor["wall"] != wall_anchor_wall:
-		# newly acquired (or switched to a different neighbour): default to
-		# continuing that wall's own direction; Flip still adjusts it from here
+	else:
+		# newly acquired: default to continuing that wall's own direction; drag
+		# further (or use Flip) to rotate the new segment from there
 		wall_anchor = anchor["pos"]
 		wall_anchor_wall = anchor["wall"]
 		build_flip = anchor["yaw"]
-	else:
-		wall_anchor = anchor["pos"]
 
 
 func _update_ghost() -> void:
@@ -1267,8 +1283,10 @@ func _update_waves(delta: float) -> void:
 		_gain_gold(20 + wave * 8)
 		if wave >= TOTAL_WAVES:
 			_end_game(true)
-	# auto-launch the next wave if the player dawdles past the prep window
-	if not game_over and wave < TOTAL_WAVES and wave_cd <= 0.0:
+	# auto-launch the next wave if the player dawdles past the prep window --
+	# except the very first one, which always needs a manual press (handy while
+	# testing/building so combat doesn't force its way in before you're ready)
+	if not game_over and wave > 0 and wave < TOTAL_WAVES and wave_cd <= 0.0:
 		prep_t -= delta
 		if prep_t <= 0.0:
 			start_wave()
@@ -1285,9 +1303,13 @@ func _refresh_wave_btn() -> void:
 	btn_wave.disabled = not can_start
 	var remaining := spawn_list.size() + enemies_alive
 	if can_start:
-		# enabled: show the auto-launch countdown (and current count if mid-siege)
+		# enabled: show the auto-launch countdown (and current count if mid-siege);
+		# the first wave never auto-launches, so it has no countdown to show
 		var tail := "  (%d left)" % remaining if remaining > 0 else ""
-		btn_wave.text = "START WAVE\nauto %ds%s" % [int(ceil(prep_t)), tail]
+		if wave == 0:
+			btn_wave.text = "START WAVE"
+		else:
+			btn_wave.text = "START WAVE\nauto %ds%s" % [int(ceil(prep_t)), tail]
 	elif remaining > 0:
 		btn_wave.text = "WAVE %d\n%d left" % [wave, remaining]
 	else:
