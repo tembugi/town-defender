@@ -136,10 +136,11 @@ static func obstacle(radius: float, height := 3.0) -> StaticBody3D:
 
 # --- Weapons -------------------------------------------------------------
 # KayKit characters ship unarmed but have a `handslot.r` bone for weapons.
-# The sword is a real model file (Models/weapons/sword.glb, editable in Blender);
-# the others are still built from primitives. tools/export_sword.gd regenerates
-# the sword glb from code if needed.
-const SWORD_MODEL := "res://Models/weapons/sword.glb"
+# The sword is a real KayKit Fantasy Weapons Bits asset (sword_B, "sword 2" in
+# the pack), same author/rig family as our characters so it scales correctly
+# with no extra tuning -- its origin sits at the grip, matching handslot
+# convention. The others are still built from primitives.
+const SWORD_MODEL := "res://Models/weapons/sword_B.gltf"
 
 
 static func _box(size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
