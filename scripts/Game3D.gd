@@ -22,7 +22,8 @@ const HEX_V := 1.732
 const FIELD_COLS := 13
 const FIELD_ROWS := 11
 
-const HEX_GRASS := "res://Models/hexagon/tiles/base/hex_grass.gltf"
+const FLOOR := "res://Models/halloween/floor_dirt.gltf"   # 4x4 ground tile
+const FLOOR_TILE := 4.0
 const CASTLE := "res://Models/hexagon/buildings/blue/building_castle_blue.gltf"
 
 const HIRE_COST := 25
@@ -32,7 +33,8 @@ const HOME := "res://Models/hexagon/buildings/blue/building_home_A_blue.gltf"
 const MARKET := "res://Models/hexagon/buildings/blue/building_market_blue.gltf"
 const BARRACKS := "res://Models/hexagon/buildings/blue/building_barracks_blue.gltf"
 const TOWER := "res://Models/hexagon/buildings/blue/building_tower_A_blue.gltf"
-const WALL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
+const WALL := "res://Models/halloween/fence.gltf"
+const PILLAR := "res://Models/halloween/fence_pillar.gltf"   # post at fence joints/ends
 const TOWER_COST := 70
 const WALL_COST := 25
 
@@ -78,6 +80,7 @@ var workers: Array[Worker3D] = []
 var build_pads: Array[BuildPad3D] = []
 var towers: Array = []
 var walls: Array[Wall3D] = []
+var pillars: Array[Node3D] = []   # fence posts dropped at wall endpoints (deduped)
 var buildings: Array = []   # freely-placed house/market/barracks (for overlap checks)
 
 # everything buildable from the menu: label, type, cost
@@ -144,10 +147,10 @@ var build_cost := 0
 var build_flip := 0.0          # yaw from the Flip button
 var ghost: Node3D              # translucent preview, dragged freely on the field
 var ghost_mat: StandardMaterial3D    # single-mesh ghost (non-wall build types)
-var ghost_wall_mesh: Node3D          # wall ghost: the straight-segment piece (always present)
+var ghost_wall_mesh: Node3D          # wall ghost: the fence rail (always present)
 var ghost_wall_mat: StandardMaterial3D
-var ghost_corner_mesh: Node3D        # wall ghost: the corner piece (only while a corner applies)
-var ghost_corner_mat: StandardMaterial3D
+var ghost_pillars: Array[Node3D] = []       # wall ghost: a post preview at each endpoint
+var ghost_pillar_mats: Array = []
 var ghost_target := Vector3.ZERO   # raw (unsnapped) ground position the ghost is dragged to
 const WALL_SNAP_RADIUS := 1.1      # how close to an existing wall end counts as "attach here"
 const WALL_RELEASE_RADIUS := 3.0   # once attached, how far you can drag before letting go
@@ -209,27 +212,31 @@ func _build_environment() -> void:
 
 
 func _build_world() -> void:
-	# ground: one MultiMesh of hex_grass tiles (single draw call)
-	var grass := _mesh_of(HEX_GRASS)
-	_tint_mesh(grass, Color(0.58, 0.72, 0.46))   # deeper, less lime grass
+	# ground: one MultiMesh of Halloween dirt tiles (single draw call), a square
+	# grid sized to cover the same play area the old hex grid did
+	var dirt := _mesh_of(FLOOR)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = grass
-	mm.instance_count = FIELD_COLS * FIELD_ROWS
-	var ox := -(FIELD_COLS - 1) * HEX_W * 0.5
-	var oz := -(FIELD_ROWS - 1) * HEX_V * 0.5
+	mm.mesh = dirt
+	var cols := int(ceil(FIELD_COLS * HEX_W / FLOOR_TILE)) + 1
+	var rows := int(ceil(FIELD_ROWS * HEX_V / FLOOR_TILE)) + 1
+	mm.instance_count = cols * rows
+	var ox := -(cols - 1) * FLOOR_TILE * 0.5
+	var oz := -(rows - 1) * FLOOR_TILE * 0.5
 	var i := 0
-	for r in range(FIELD_ROWS):
-		for q in range(FIELD_COLS):
-			var x := HEX_W * (q + 0.5 * (r & 1)) + ox
-			var z := HEX_V * r + oz
+	for r in range(rows):
+		for q in range(cols):
+			var x := ox + q * FLOOR_TILE
+			var z := oz + r * FLOOR_TILE
 			mm.set_instance_transform(i, Transform3D(Basis(), Vector3(x, 0, z)))
 			i += 1
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	add_child(mmi)
-	# playable bounds (slight inset)
-	field_rect = Rect2(ox + 1.0, oz + 1.0, (FIELD_COLS - 1) * HEX_W - 2.0, (FIELD_ROWS - 1) * HEX_V - 2.0)
+	# playable bounds (unchanged from the hex layout, slight inset)
+	var fox := -(FIELD_COLS - 1) * HEX_W * 0.5
+	var foz := -(FIELD_ROWS - 1) * HEX_V * 0.5
+	field_rect = Rect2(fox + 1.0, foz + 1.0, (FIELD_COLS - 1) * HEX_W - 2.0, (FIELD_ROWS - 1) * HEX_V - 2.0)
 
 	# central Keep + its always-on health bar
 	keep_node = (load(CASTLE) as PackedScene).instantiate()
@@ -513,12 +520,12 @@ func _enter_build_mode(btype: String, cost: int) -> void:
 func _exit_build_mode() -> void:
 	build_mode = false
 	if is_instance_valid(ghost):
-		ghost.queue_free()   # frees ghost_wall_mesh/ghost_corner_mesh too (its children)
+		ghost.queue_free()   # frees ghost_wall_mesh/ghost_pillars too (its children)
 	ghost = null
 	ghost_wall_mesh = null
 	ghost_wall_mat = null
-	ghost_corner_mesh = null
-	ghost_corner_mat = null
+	ghost_pillars.clear()
+	ghost_pillar_mats.clear()
 	ghost_mat = null
 	hero.cone.visible = true
 	joystick.visible = true
@@ -607,87 +614,25 @@ func _update_ghost() -> void:
 	var col := Color(0.4, 1.0, 0.4, 0.45) if ok else Color(1.0, 0.35, 0.35, 0.45)
 	if build_btype == "wall":
 		ghost_wall_mat.albedo_color = col
-		if ghost_corner_mat != null:
-			ghost_corner_mat.albedo_color = col
+		for m in ghost_pillar_mats:
+			(m as StandardMaterial3D).albedo_color = col
 	else:
 		ghost_mat.albedo_color = col
 
 
-# Positions the wall ghost each frame; when the current angle forms a right-angle
-# corner with the wall it's snapped to, ALSO shows the corner piece live (pushing
-# the wall ghost further out to leave room for it), so you see the join before
-# you commit to it. Returns the position to run the build-validity check against.
+# Positions the fence ghost each frame: the rail at the current spot/angle, plus a
+# post preview at each of its two endpoints (so you see where the corner/end posts
+# will land). When snapped to a neighbour's end, the rail extends out from there.
+# Returns the position to run the build-validity check against.
 func _update_wall_ghost() -> Vector3:
 	var dir_b := Vector3(1, 0, 0).rotated(Vector3.UP, build_flip)
-	var layout := {}
-	if wall_anchor != Vector3.INF and wall_anchor_wall != null and is_instance_valid(wall_anchor_wall):
-		var dir_a: Vector3 = wall_anchor_wall.position - wall_anchor
-		dir_a.y = 0.0
-		if dir_a.length() > 0.01:
-			layout = _corner_layout(wall_anchor, dir_a.normalized(), dir_b)
-	if not layout.is_empty():
-		ghost_wall_mesh.position = layout["wall_pos"]
-		ghost_wall_mesh.rotation.y = build_flip
-		if ghost_corner_mesh == null:
-			ghost_corner_mesh = (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
-			ghost_corner_mesh.scale = Wall3D.MODEL_SCALE
-			ghost_corner_mat = _tint_ghost(ghost_corner_mesh)
-			ghost.add_child(ghost_corner_mesh)
-		ghost_corner_mesh.position = layout["corner_pos"]
-		ghost_corner_mesh.rotation.y = layout["corner_yaw"]
-		return layout["wall_pos"]
-	if ghost_corner_mesh != null:
-		ghost_corner_mesh.queue_free()
-		ghost_corner_mesh = null
-		ghost_corner_mat = null
 	var pos: Vector3 = (wall_anchor + dir_b * (Wall3D.LENGTH * 0.5)) if wall_anchor != Vector3.INF else ghost_target
 	ghost_wall_mesh.position = pos
 	ghost_wall_mesh.rotation.y = build_flip
+	var eps := Wall3D.endpoints(pos, build_flip)
+	for k in range(ghost_pillars.size()):
+		ghost_pillars[k].position = eps[k]
 	return pos
-
-
-# Geometry for a right-angle wall corner, derived from the corner asset's own
-# measured reach (~1.0 units along each arm from its local origin -- it's a real
-# piece with its own footprint, not a zero-size decoration that slots invisibly
-# between two already-touching straight segments). Pushes the new wall further
-# out to leave room for the corner. Returns {} if dir_a/dir_b aren't a ~90deg
-# turn (a straight run, or an angle we don't support corners for).
-const CORNER_ANGLE_TOL := 20.0
-const WALL_CORNER_OUTSIDE := "res://Models/hexagon/buildings/neutral/wall_corner_A_outside.gltf"
-# Measured from the corner asset's raw mesh vertices: its two arms are NOT a
-# symmetric crossing. The "X" arm (local -X) reaches exactly 1.0 and is on-axis
-# (its centreline passes through the piece's own origin). The "Z" arm (local -Z)
-# reaches slightly further (~1.065) and its centreline sits offset ~0.3 units to
-# the side of the origin, not through it.
-const CORNER_REACH_X := 1.0
-const CORNER_REACH_Z := 1.065
-const CORNER_Z_OFFSET := 0.3
-
-func _corner_layout(anchor: Vector3, dir_a: Vector3, dir_b: Vector3) -> Dictionary:
-	if absf(dir_a.angle_to(dir_b) - PI * 0.5) > deg_to_rad(CORNER_ANGLE_TOL):
-		return {}
-	# The piece also has a FIXED handedness (the Z arm always sits at a signed
-	# -90deg from the X arm; rotating the whole piece can't change that, only
-	# mirroring could, and mirroring via negative scale would flip its face
-	# winding and risk the mesh disappearing to backface culling). A wall can
-	# turn either clockwise or counter-clockwise from the one it's attached to,
-	# but only one of those senses matches the piece's fixed handedness with the
-	# X arm facing the existing wall -- for the other sense, swap so the Z arm
-	# faces the existing wall instead (each arm keeps its own reach/offset).
-	var corner_pos: Vector3
-	var corner_yaw: float
-	var wall_pos: Vector3
-	if dir_a.signed_angle_to(dir_b, Vector3.UP) < 0.0:
-		# X arm -> existing wall (clean, on-axis), Z arm -> new wall (offset, longer)
-		corner_yaw = Vector3(-1, 0, 0).signed_angle_to(dir_a, Vector3.UP)
-		corner_pos = anchor - dir_a * CORNER_REACH_X
-		wall_pos = corner_pos - dir_a * CORNER_Z_OFFSET + dir_b * (CORNER_REACH_Z + Wall3D.LENGTH * 0.5)
-	else:
-		# Z arm -> existing wall (offset, longer), X arm -> new wall (clean, on-axis)
-		corner_yaw = Vector3(0, 0, -1).signed_angle_to(dir_a, Vector3.UP)
-		corner_pos = anchor - dir_a * CORNER_REACH_Z + dir_b * CORNER_Z_OFFSET
-		wall_pos = corner_pos + dir_b * (CORNER_REACH_X + Wall3D.LENGTH * 0.5)
-	return {"corner_pos": corner_pos, "corner_yaw": corner_yaw, "wall_pos": wall_pos}
 
 
 # Project a screen point onto the ground plane (y = 0).
@@ -725,6 +670,13 @@ func _make_ghost(btype: String) -> Node3D:
 		ghost_wall_mesh.scale = Wall3D.MODEL_SCALE
 		ghost_wall_mat = _tint_ghost(ghost_wall_mesh)
 		root.add_child(ghost_wall_mesh)
+		ghost_pillars.clear()
+		ghost_pillar_mats.clear()
+		for _k in range(2):
+			var pg := (load(PILLAR) as PackedScene).instantiate()
+			ghost_pillar_mats.append(_tint_ghost(pg))
+			root.add_child(pg)
+			ghost_pillars.append(pg)
 		return root
 	var path: String = {"house": HOME, "workshop": MARKET, "barracks": BARRACKS, "tower": TOWER}[btype]
 	var g := (load(path) as PackedScene).instantiate()
@@ -1064,24 +1016,28 @@ func _place_building(btype: String, cost: int, pos: Vector3, yaw := 0.0, exclude
 			w.setup(self)
 			walls.append(w)
 			_pop_in(w, 1.0)
-			# a corner was previewed and confirmed -> drop the real (non-decorative
-			# in terms of gameplay, but still collision/HP-free) corner piece too,
-			# using the exact same layout math the ghost preview used
-			if exclude_wall != null and wall_anchor != Vector3.INF and is_instance_valid(exclude_wall):
-				var dir_a: Vector3 = exclude_wall.position - wall_anchor
-				dir_a.y = 0.0
-				if dir_a.length() > 0.01:
-					var dir_b := Vector3(1, 0, 0).rotated(Vector3.UP, yaw)
-					var layout := _corner_layout(wall_anchor, dir_a.normalized(), dir_b)
-					if not layout.is_empty():
-						var cap := (load(WALL_CORNER_OUTSIDE) as PackedScene).instantiate()
-						cap.scale = Wall3D.MODEL_SCALE
-						cap.position = layout["corner_pos"]
-						cap.rotation.y = layout["corner_yaw"]
-						add_child(cap)
+			# drop a post at each endpoint (deduped) so ends get a cap and corners
+			# where two runs meet share a single post -- works at any angle
+			for ep in Wall3D.endpoints(pos, yaw):
+				_ensure_pillar(ep)
 		_:
 			_make_building(btype, pos, yaw)
 	return true
+
+
+# Spawn a fence post at `p` unless one already stands there (so shared endpoints
+# of adjacent/cornering fences get a single post, not two overlapping ones). Posts
+# are purely decorative -- the fence rail itself carries the collision and HP.
+func _ensure_pillar(p: Vector3) -> void:
+	p.y = 0.0
+	for pl in pillars:
+		if is_instance_valid(pl) and Vector2(pl.position.x - p.x, pl.position.z - p.z).length() < 0.5:
+			return
+	var pillar := (load(PILLAR) as PackedScene).instantiate()
+	pillar.position = p
+	add_child(pillar)
+	pillars.append(pillar)
+	_pop_in(pillar, 1.0)
 
 
 func _make_building(btype: String, pos: Vector3, yaw: float) -> void:
