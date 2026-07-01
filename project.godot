@@ -11,12 +11,11 @@ config_version=5
 [application]
 
 config/name="Town Defender"
-config/version="0.2.0"
+config/version="0.2.1"
 run/main_scene="res://Main3D.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 boot_splash/bg_color=Color(0.063, 0.188, 0.098, 1)
 boot_splash/image="res://logo.png"
-boot_splash/use_filter=true
 config/icon="res://icon.svg"
 
 [autoload]

@@ -4,12 +4,13 @@ extends StaticBody3D
 # A destructible barrier. Blocks enemy movement (so it funnels them); enemies that
 # are stopped by it attack it until it's destroyed. Built on a wall build pad.
 
-# Stone fence: native length 1.15 runs along Z. We rotate it so the length runs
-# along X and scale it to one hex (2.0) so adjacent hex-snapped pieces join up.
-const MODEL := "res://Models/hexagon/buildings/neutral/fence_stone_straight.gltf"
-const SCALE := 1.74           # 1.15 * 1.74 ~= 2.0 (one hex)
-const MAX_HP := 140.0
-const BAR_W := 1.3
+# Modular stone wall: native size is exactly one hex wide (2.0) x 1.1 tall, already
+# aligned to tile along X (no rotation needed). Stretched taller (Y only) to match
+# tree height (~1.8) without distorting the width/tiling.
+const MODEL := "res://Models/hexagon/buildings/neutral/wall_straight.gltf"
+const MODEL_SCALE := Vector3(1.0, 1.63, 1.0)
+const MAX_HP := 180.0
+const BAR_W := 1.5
 
 const BAR_COLOR := Color(0.75, 0.7, 0.45, 1.0)
 
@@ -25,21 +26,22 @@ func setup(g: Node) -> void:
 	collision_layer = Rig.L_OBSTACLE
 	collision_mask = 0
 	var b := (load(MODEL) as PackedScene).instantiate()
-	b.scale = Vector3.ONE * SCALE
-	b.rotation.y = PI * 0.5      # run the fence length along X (tiles along a row)
+	b.scale = MODEL_SCALE
 	add_child(b)
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	# full hex length so adjacent fences' colliders meet (no gap), taller than the
-	# low mesh so it reliably blocks the units
-	box.size = Vector3(2.0, 1.0, 0.5)
+	# full hex width so adjacent walls' colliders meet (no gap); height covers
+	# most of the taller stretched model
+	box.size = Vector3(2.0, 1.6, 0.7)
 	cs.shape = box
-	cs.position.y = 0.5
+	cs.position.y = 0.8
 	add_child(cs)
-	add_child(Rig.blob_shadow(0.85))
+	# a slim ground shadow proportioned to the wall's footprint (not a round
+	# building's), so it doesn't read as an oversized dark blob next to units
+	add_child(Rig.blob_shadow(0.55))
 	# HP bar
 	var hb := Node3D.new()
-	hb.position = Vector3(0, 0.95, 0)
+	hb.position = Vector3(0, 2.0, 0)
 	add_child(hb)
 	hb.add_child(Rig.bar_quad(Color(0, 0, 0, 0.6), BAR_W, 0))
 	bar_fill = Rig.bar_quad(BAR_COLOR, BAR_W, 1)
