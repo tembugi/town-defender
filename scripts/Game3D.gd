@@ -377,7 +377,11 @@ func _build_touch_ui() -> void:
 	btn_place.visible = false
 	layer.add_child(btn_place)
 	btn_flip = _hud_button("FLIP", -160 - 130, Color(0.45, 0.55, 0.7), true)
-	btn_flip.pressed.connect(func(): build_flip = fmod(build_flip + PI * 0.25, TAU))
+	btn_flip.pressed.connect(func():
+		# once a wall is attached to a neighbour, only allow clean 90deg turns --
+		# the pack has no corner piece for in-between angles, which left gaps
+		var step := PI * 0.5 if (build_btype == "wall" and wall_anchor != Vector3.INF) else PI * 0.25
+		build_flip = fmod(build_flip + step, TAU))
 	btn_flip.visible = false
 	layer.add_child(btn_flip)
 	btn_cancel = _hud_button("CANCEL", -160 - 260, Color(0.7, 0.4, 0.4), true)
@@ -556,7 +560,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			wall_anchor_wall = null
 			ghost_target = g
 			return
-		build_flip = snappedf(Vector3(1, 0, 0).signed_angle_to(to_drag, Vector3.UP), PI * 0.25)
+		# 90deg steps only here too (see the Flip handler for why)
+		build_flip = snappedf(Vector3(1, 0, 0).signed_angle_to(to_drag, Vector3.UP), PI * 0.5)
 		return
 	ghost_target = g
 	if build_btype != "wall":
